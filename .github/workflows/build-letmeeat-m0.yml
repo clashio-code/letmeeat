@@ -1,0 +1,397 @@
+name: build-letmeeat-m0
+on:
+  workflow_dispatch:
+  push:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pasang toolchain ARM 32-bit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-linux-gnueabihf
+
+      - name: Tulis sumber
+        run: |
+          mkdir -p src out/letmeeat
+          cat > src/letmeeatloader.c <<'EOF_C1'
+          /* letmeeatloader - Milestone 0 port Let Me Eat (Unity 6000.0 IL2CPP, armeabi-v7a -> Linux armhf / muOS).
+           * HANYA muat + relokasi + laporan. TIDAK ada kode game yang dijalankan (tanpa init_array, tanpa JNI_OnLoad).
+           * Memuat libmain.so + libunity.so + libil2cpp.so (ELF32 ARM, bionic, softfp) SENDIRI tanpa dlopen, memetakan segmen,
+           * menerapkan relokasi REL (RELATIVE/ABS32/GLOB_DAT/JUMP_SLOT), lalu melaporkan:
+           *   A. simbol impor yang tidak ada di mana pun (wajib di-shim)   B. simbol ada di glibc tapi layout/semantik bionic beda
+           *   C. simbol FP (float/double) -> butuh pembungkus softfp->hardfp (pcs aapcs)   D. info EXIDX/TLS/init/JNI per modul
+           * Pakai: letmeeatloader [--libdir DIR] [--log FILE]
+           * Catatan glibc: JANGAN pakai strtol/sscanf/atoi/strlcpy dkk (header baru mengikat ke GLIBC_2.38, batas device 2.37). */
+          #define _GNU_SOURCE
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <string.h>
+          #include <stdint.h>
+          #include <stdarg.h>
+          #include <errno.h>
+          #include <elf.h>
+          #include <dlfcn.h>
+          #include <fcntl.h>
+          #include <unistd.h>
+          #include <sys/mman.h>
+          #include <sys/utsname.h>
+          #include <gnu/libc-version.h>
+
+          #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+          #define PAGE 4096u
+          #define MAXMOD 4
+          #define MAXIMP 4096
+          #define U32(p) ((uint32_t)(uintptr_t)(p))
+
+          static FILE *g_log;
+          static char g_libdir[300] = "libs", g_logpath[300] = "m0_log.txt";
+
+          static void L(const char *fmt, ...) {
+            va_list ap;
+            va_start(ap, fmt); vfprintf(stdout, fmt, ap); va_end(ap); fflush(stdout);
+            if (g_log) { va_start(ap, fmt); vfprintf(g_log, fmt, ap); va_end(ap); fflush(g_log); }
+          }
+
+          typedef struct Mod {
+            char name[32];
+            uint8_t *base; size_t span; uintptr_t bias; uint32_t minv;
+            Elf32_Sym *sym; int nsym; const char *str;
+            Elf32_Rel *rel; uint32_t nrel; Elf32_Rel *jrel; uint32_t njrel;
+            uint32_t *iarr; uint32_t niarr; uint32_t init, fini_n;
+            uint32_t exidx, exidx_sz; int ntls; int bad_tag;
+            uint32_t needed_off[16]; int nneeded;
+            unsigned ntype[48];
+            unsigned n_self, n_mod, n_libc, n_gl, n_weak, n_unres, n_imp;
+          } Mod;
+          static Mod mods[MAXMOD]; static int nmods;
+          static void *h_gles, *h_egl;
+
+          enum { C_MOD, C_LIBC, C_GL, C_EGL, C_WEAK0, C_UNRES };
+          static const char *const cat_name[] = { "modul game lain", "glibc/libm host", "GLES host", "EGL host", "weak->0", "TAK TERSELESAIKAN" };
+          typedef struct { char name[100]; int cat; uint32_t addr; unsigned usedby; int jump, got; } Imp;
+          static Imp imps[MAXIMP]; static int nimp, nunres;
+
+          static int pread_all(int fd, void *buf, size_t n, uint32_t off) {
+            size_t got = 0;
+            while (got < n) {
+              ssize_t r = pread(fd, (char *)buf + got, n - got, (off_t)(off + got));
+              if (r <= 0) return -1;
+              got += (size_t)r;
+            }
+            return 0;
+          }
+
+          static int load_mod(const char *dir, const char *name) {
+            char path[512];
+            Mod *m;
+            Elf32_Ehdr eh;
+            Elf32_Phdr *ph = NULL;
+            uint32_t minv = 0xFFFFFFFFu, maxv = 0;
+            int fd, i, dyn_found = 0;
+            if (nmods >= MAXMOD) return -1;
+            m = &mods[nmods];
+            memset(m, 0, sizeof *m);
+            snprintf(m->name, sizeof m->name, "%s", name);
+            snprintf(path, sizeof path, "%s/%s", dir, name);
+            fd = open(path, O_RDONLY);
+            if (fd < 0) { L("GAGAL membuka %s: %s\n", path, strerror(errno)); return -1; }
+            if (pread_all(fd, &eh, sizeof eh, 0) != 0 || memcmp(eh.e_ident, ELFMAG, SELFMAG) || eh.e_ident[EI_CLASS] != ELFCLASS32 ||
+                eh.e_machine != EM_ARM || eh.e_type != ET_DYN || eh.e_phentsize != sizeof(Elf32_Phdr)) {
+              L("%s: bukan ELF ARM32 shared object\n", name); close(fd); return -1;
+            }
+            ph = calloc(eh.e_phnum, sizeof *ph);
+            if (!ph || pread_all(fd, ph, eh.e_phnum * sizeof *ph, eh.e_phoff) != 0) { L("%s: gagal baca program header\n", name); close(fd); return -1; }
+            for (i = 0; i < eh.e_phnum; i++) if (ph[i].p_type == PT_LOAD) {
+              if (ph[i].p_vaddr < minv) minv = ph[i].p_vaddr;
+              if (ph[i].p_vaddr + ph[i].p_memsz > maxv) maxv = ph[i].p_vaddr + ph[i].p_memsz;
+            }
+            minv &= ~(PAGE - 1); maxv = (maxv + PAGE - 1) & ~(PAGE - 1);
+            m->span = maxv - minv; m->minv = minv;
+            m->base = mmap(NULL, m->span, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            if (m->base == MAP_FAILED) { L("%s: mmap %lu byte gagal: %s\n", name, (unsigned long)m->span, strerror(errno)); close(fd); return -1; }
+            m->bias = (uintptr_t)m->base - minv;
+            for (i = 0; i < eh.e_phnum; i++) if (ph[i].p_type == PT_LOAD) {
+              if (pread_all(fd, (void *)(m->bias + ph[i].p_vaddr), ph[i].p_filesz, ph[i].p_offset) != 0) { L("%s: gagal baca segmen %d\n", name, i); close(fd); return -1; }
+            }
+            for (i = 0; i < eh.e_phnum; i++) {
+              if (ph[i].p_type == PT_ARM_EXIDX) { m->exidx = ph[i].p_vaddr; m->exidx_sz = ph[i].p_memsz; }
+              if (ph[i].p_type == PT_TLS) m->ntls++;
+              if (ph[i].p_type == PT_DYNAMIC) {
+                const Elf32_Dyn *d = (const Elf32_Dyn *)(m->bias + ph[i].p_vaddr);
+                dyn_found = 1;
+                for (; d->d_tag != DT_NULL; d++) {
+                  switch (d->d_tag) {
+                    case DT_SYMTAB: m->sym = (Elf32_Sym *)(m->bias + d->d_un.d_ptr); break;
+                    case DT_STRTAB: m->str = (const char *)(m->bias + d->d_un.d_ptr); break;
+                    case DT_REL: m->rel = (Elf32_Rel *)(m->bias + d->d_un.d_ptr); break;
+                    case DT_RELSZ: m->nrel = d->d_un.d_val / sizeof(Elf32_Rel); break;
+                    case DT_JMPREL: m->jrel = (Elf32_Rel *)(m->bias + d->d_un.d_ptr); break;
+                    case DT_PLTRELSZ: m->njrel = d->d_un.d_val / sizeof(Elf32_Rel); break;
+                    case DT_INIT: m->init = d->d_un.d_val; break;
+                    case DT_INIT_ARRAY: m->iarr = (uint32_t *)(m->bias + d->d_un.d_ptr); break;
+                    case DT_INIT_ARRAYSZ: m->niarr = d->d_un.d_val / 4; break;
+                    case DT_FINI_ARRAYSZ: m->fini_n = d->d_un.d_val / 4; break;
+                    case DT_NEEDED: if (m->nneeded < 16) m->needed_off[m->nneeded++] = d->d_un.d_val; break;
+                    case DT_RELA: case 0x6000000f: case 0x60000011: case 36 /* DT_RELR */: m->bad_tag++; L("%s: PERINGATAN tag relokasi tak didukung 0x%x\n", name, (unsigned)d->d_tag); break;
+                    default: break;
+                  }
+                }
+              }
+            }
+            if (!dyn_found || !m->sym || !m->str) { L("%s: section dinamis tidak lengkap\n", name); close(fd); return -1; }
+            if (eh.e_shoff && eh.e_shentsize == sizeof(Elf32_Shdr) && eh.e_shnum) {
+              Elf32_Shdr *sh = calloc(eh.e_shnum, sizeof *sh);
+              if (sh && pread_all(fd, sh, eh.e_shnum * sizeof *sh, eh.e_shoff) == 0)
+                for (i = 0; i < eh.e_shnum; i++) if (sh[i].sh_type == SHT_DYNSYM) m->nsym = (int)(sh[i].sh_size / sizeof(Elf32_Sym));
+              free(sh);
+            }
+            if (m->nsym <= 0 && (uintptr_t)m->str > (uintptr_t)m->sym) m->nsym = (int)(((uintptr_t)m->str - (uintptr_t)m->sym) / sizeof(Elf32_Sym));
+            if (m->nsym <= 0) { L("%s: jumlah simbol tidak diketahui\n", name); close(fd); return -1; }
+            free(ph); close(fd);
+            nmods++;
+            L("[load] %-14s base=%p span=0x%lx bias=0x%lx simbol=%d rel=%u jmprel=%u init_array=%u exidx=%u byte tls=%d\n", name, (void *)m->base,
+              (unsigned long)m->span, (unsigned long)m->bias, m->nsym, m->nrel, m->njrel, m->niarr, m->exidx_sz, m->ntls);
+            return 0;
+          }
+
+          static void *mod_find(const Mod *m, const char *name) {
+            int i;
+            for (i = 1; i < m->nsym; i++) {
+              const Elf32_Sym *s = &m->sym[i];
+              if (s->st_shndx != SHN_UNDEF && s->st_name && strcmp(m->str + s->st_name, name) == 0) return (void *)(m->bias + s->st_value);
+            }
+            return NULL;
+          }
+
+          /* ---------------- klasifikasi (hanya laporan) ---------------- */
+          static int starts(const char *s, const char *p) { return strncmp(s, p, strlen(p)) == 0; }
+          static int ends(const char *s, const char *e) { size_t a = strlen(s), b = strlen(e); return a >= b && strcmp(s + a - b, e) == 0; }
+          /* ada di glibc, tapi struct/konstanta/ukuran/nilai kembali bionic arm32 beda */
+          static const char *danger(const char *n) {
+            static const char *const pf[] = { "pthread_", "sem_", "stat", "fstat", "lstat", "readdir", "opendir", "closedir", "sig", "setjmp", "_setjmp", "longjmp", "_longjmp",
+              "dl", "stdin", "stdout", "stderr", "getpw", "sysconf", "strerror", "newlocale", "uselocale", "freelocale", "setlocale", "localeconv", "getauxval", "__", NULL };
+            static const char *const why[] = { "mutex/cond/attr/rwlock ukuran beda (bionic 4 byte)", "sem_t beda", "struct stat beda", "struct stat beda", "struct stat beda", "struct dirent beda",
+              "DIR/dirent", "DIR", "sigset_t/sigaction beda", "jmp_buf beda", "jmp_buf beda", "jmp_buf beda", "jmp_buf beda", "dlopen/dlsym harus lewat loader", "FILE* bionic = &__sF[]", "FILE* bionic = &__sF[]",
+              "FILE* bionic = &__sF[]", "struct passwd", "konstanta _SC_* beda", "strerror_r GNU vs XSI", "locale_t / mask beda", "locale_t", "locale_t", "locale", "locale", "ok", "internal bionic", NULL };
+            int i;
+            if (starts(n, "__cxa_") || !strcmp(n, "__stack_chk_fail")) return NULL;
+            for (i = 0; pf[i]; i++) if (starts(n, pf[i])) { if (!strcmp(why[i], "ok")) return NULL; return why[i]; }
+            if (ends(n, "_l")) return "locale_t";
+            return NULL;
+          }
+          static int fp_name(const char *n) {
+            static const char *const b[] = { "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "tanh", "exp", "exp2", "expm1", "log", "log2", "log10", "log1p", "pow", "sqrt", "cbrt", "hypot",
+              "fmod", "floor", "ceil", "round", "trunc", "rint", "nearbyint", "lrint", "lround", "ldexp", "scalbn", "frexp", "modf", "fmax", "fmin", "fabs", "logb", "copysign", "sincos", "remainder", "fdim", NULL };
+            static const char *const x[] = { "difftime", "strtod", "strtof", "strtold", "strtold_l", "strtod_l", "strtof_l", "atof", "wcstod", "wcstof", "wcstold", NULL };
+            size_t ln = strlen(n); int i;
+            for (i = 0; x[i]; i++) if (!strcmp(n, x[i])) return 1;
+            for (i = 0; b[i]; i++) { size_t lb = strlen(b[i]); if (!strcmp(n, b[i])) return 1; if (ln == lb + 1 && n[ln - 1] == 'f' && !strncmp(n, b[i], lb)) return 1; }
+            return 0;
+          }
+
+          static int lookup(const Mod *self, const char *n, int bind, uint32_t *addr) {
+            int i; void *p;
+            for (i = 0; i < nmods; i++) if (&mods[i] != self && (p = mod_find(&mods[i], n))) { *addr = U32(p); return C_MOD; }
+            if ((p = dlsym(RTLD_DEFAULT, n))) { *addr = U32(p); return C_LIBC; }
+            if (h_gles && (p = dlsym(h_gles, n))) { *addr = U32(p); return C_GL; }
+            if (h_egl && (p = dlsym(h_egl, n))) { *addr = U32(p); return C_EGL; }
+            if (bind == STB_WEAK) { *addr = 0; return C_WEAK0; }
+            *addr = 0xDEAD0000u + 4u * (uint32_t)nunres++;
+            return C_UNRES;
+          }
+
+          static uint32_t resolve(Mod *self, int sidx, const Elf32_Sym *s, int via_jump) {
+            const char *n = self->str + s->st_name;
+            int k;
+            unsigned bit = 1u << sidx;
+            if (s->st_shndx != SHN_UNDEF) { self->n_self++; return (uint32_t)(self->bias + s->st_value); }
+            for (k = 0; k < nimp; k++) if (!strcmp(imps[k].name, n)) break;
+            if (k == nimp) {
+              if (nimp >= MAXIMP) return 0xDEADFFFFu;
+              snprintf(imps[k].name, sizeof imps[k].name, "%s", n);
+              imps[k].cat = lookup(self, n, ELF32_ST_BIND(s->st_info), &imps[k].addr);
+              nimp++;
+            }
+            if (!(imps[k].usedby & bit)) {
+              self->n_imp++;
+              switch (imps[k].cat) { case C_MOD: self->n_mod++; break; case C_LIBC: self->n_libc++; break; case C_GL: case C_EGL: self->n_gl++; break; case C_WEAK0: self->n_weak++; break; default: self->n_unres++; }
+            }
+            imps[k].usedby |= bit;
+            if (via_jump) imps[k].jump = 1; else imps[k].got = 1;
+            return imps[k].addr;
+          }
+
+          static int relocate(Mod *m, int sidx) {
+            int pass, bad = 0;
+            for (pass = 0; pass < 2; pass++) {
+              Elf32_Rel *r = pass ? m->jrel : m->rel;
+              uint32_t n = pass ? m->njrel : m->nrel, k;
+              for (k = 0; k < n; k++) {
+                uint32_t type = ELF32_R_TYPE(r[k].r_info), si = ELF32_R_SYM(r[k].r_info);
+                uint32_t off = r[k].r_offset;
+                uint32_t *where;
+                if (off < m->minv || (size_t)off + 4 > (size_t)m->minv + m->span || (off & 3u)) { L("[reloc] %s: offset 0x%x di luar modul/tidak sejajar\n", m->name, off); bad++; continue; }
+                where = (uint32_t *)(m->bias + off);
+                if (si >= (uint32_t)m->nsym) { L("[reloc] %s: indeks simbol %u di luar tabel\n", m->name, si); bad++; continue; }
+                if (type < 48) m->ntype[type]++;
+                switch (type) {
+                  case R_ARM_NONE: break;
+                  case R_ARM_RELATIVE: *where += (uint32_t)m->bias; break;
+                  case R_ARM_ABS32: if (si) *where += resolve(m, sidx, &m->sym[si], 0); break;
+                  case R_ARM_GLOB_DAT: *where = resolve(m, sidx, &m->sym[si], 0); break;
+                  case R_ARM_JUMP_SLOT: *where = resolve(m, sidx, &m->sym[si], 1); break;
+                  default: L("[reloc] %s: tipe tidak didukung %u (offset 0x%x)\n", m->name, type, off); bad++; break;
+                }
+              }
+            }
+            L("[reloc] %-14s RELATIVE=%u ABS32=%u GLOB_DAT=%u JUMP_SLOT=%u | tak-didukung=%d\n", m->name, m->ntype[R_ARM_RELATIVE], m->ntype[R_ARM_ABS32], m->ntype[R_ARM_GLOB_DAT],
+              m->ntype[R_ARM_JUMP_SLOT], bad);
+            return bad;
+          }
+
+          static void report(void) {
+            int i, k, n;
+            L("\n================ RINGKASAN PER MODUL ================\n");
+            L("%-14s %6s %6s %6s %6s %6s %6s\n", "modul", "impor", "mod", "glibc", "GL/EGL", "weak0", "UNRES");
+            for (i = 0; i < nmods; i++) L("%-14s %6u %6u %6u %6u %6u %6u\n", mods[i].name, mods[i].n_imp, mods[i].n_mod, mods[i].n_libc, mods[i].n_gl, mods[i].n_weak, mods[i].n_unres);
+
+            L("\n================ A. TAK TERSELESAIKAN (WAJIB di-shim di loader) ================\n");
+            L("kode: F=dipanggil via PLT, D?=hanya lewat GOT/ABS (bisa DATA, mis. __sF/__stack_chk_guard, atau alamat fungsi); modul pemakai: M=libmain U=libunity I=libil2cpp\n");
+            for (k = 0, n = 0; k < nimp; k++) if (imps[k].cat == C_UNRES) {
+              L("  [%s%s] %c%c%c  %s\n", imps[k].jump ? "F" : "", imps[k].got ? "D?" : "", (imps[k].usedby & 1) ? 'M' : '-', (imps[k].usedby & 2) ? 'U' : '-', (imps[k].usedby & 4) ? 'I' : '-', imps[k].name); n++;
+            }
+            L("  total: %d\n", n);
+
+            L("\n================ B. ADA DI GLIBC TAPI LAYOUT/SEMANTIK BIONIC BEDA (butuh shim) ================\n");
+            for (k = 0, n = 0; k < nimp; k++) if (imps[k].cat != C_UNRES && imps[k].cat != C_WEAK0 && imps[k].cat != C_MOD) {
+              const char *w = danger(imps[k].name);
+              if (w) { L("  %-34s %c%c%c  %s\n", imps[k].name, (imps[k].usedby & 1) ? 'M' : '-', (imps[k].usedby & 2) ? 'U' : '-', (imps[k].usedby & 4) ? 'I' : '-', w); n++; }
+            }
+            L("  total: %d\n", n);
+
+            L("\n================ C. FP-ABI: game softfp -> host hardfp (butuh pembungkus pcs(\"aapcs\")) ================\n");
+            for (k = 0, n = 0; k < nimp; k++) if (imps[k].cat != C_MOD && imps[k].cat != C_WEAK0 && fp_name(imps[k].name)) {
+              L("  %-20s %s\n", imps[k].name, imps[k].cat == C_UNRES ? "(tak ada di host)" : cat_name[imps[k].cat]); n++;
+            }
+            L("  total: %d  (fungsi GL ber-float diambil game lewat eglGetProcAddress -> daftarnya ditangani di M1)\n", n);
+
+            L("\n================ D. SIMBOL WEAK -> 0 ================\n");
+            for (k = 0; k < nimp; k++) if (imps[k].cat == C_WEAK0) L("  %s\n", imps[k].name);
+
+            L("\n================ E. INFO MODUL ================\n");
+            for (i = 0; i < nmods; i++) {
+              Mod *m = &mods[i];
+              void *jo = mod_find(m, "JNI_OnLoad");
+              L("%s: TLS=%d  EXIDX=vaddr 0x%x (%u entri)  init_array=%u fini_array=%u  DT_INIT=%s  JNI_OnLoad=%s",
+                m->name, m->ntls, m->exidx, m->exidx_sz / 8, m->niarr, m->fini_n, m->init ? "ada" : "-", jo ? "ada" : "-");
+              if (jo) L(" (+0x%lx)", (unsigned long)((uintptr_t)jo - m->bias));
+              L("\n   NEEDED:");
+              for (k = 0; k < m->nneeded; k++) {
+                const char *nm = m->str + m->needed_off[k], *st;
+                int j, ismod = 0;
+                for (j = 0; j < nmods; j++) if (!strcmp(mods[j].name, nm)) ismod = 1;
+                if (ismod) st = "modul game"; else if (!strcmp(nm, "libc.so") || !strcmp(nm, "libm.so") || !strcmp(nm, "libdl.so")) st = "-> glibc host";
+                else if (!strcmp(nm, "libz.so") || !strcmp(nm, "libEGL.so")) st = "-> host 32-bit"; else st = "-> SHIM";
+                L(" %s[%s]", nm, st);
+              }
+              L("\n");
+            }
+            L("\ncatatan: dl_unwind_find_exidx / dl_iterate_phdr harus dilayani loader (lihat A/B) agar C++ exception ARM EHABI bisa unwind lewat modul custom.\n");
+          }
+
+          int main(int argc, char **argv) {
+            static const char *const hostlibs[] = { "libm.so.6", "libz.so.1", "libgcc_s.so.1", "libEGL.so.1", "libGLESv2.so.2", NULL };
+            static const char *const gamelibs[] = { "libmain.so", "libunity.so", "libil2cpp.so", NULL };
+            struct utsname u;
+            int i, bad = 0;
+            FILE *f;
+            char ln[200];
+            for (i = 1; i < argc; i++) {
+              if (!strcmp(argv[i], "--libdir") && i + 1 < argc) snprintf(g_libdir, sizeof g_libdir, "%s", argv[++i]);
+              else if (!strcmp(argv[i], "--log") && i + 1 < argc) snprintf(g_logpath, sizeof g_logpath, "%s", argv[++i]);
+            }
+            g_log = fopen(g_logpath, "w");
+            L("letmeeatloader M0 (stage 0: muat + relokasi + laporan, TANPA menjalankan kode game)\n");
+            if (sizeof(void *) != 4) { L("GAGAL: loader ini harus dibangun 32-bit (armhf)\n"); return 2; }
+            uname(&u);
+            L("sistem: %s %s %s | glibc %s | libdir=%s\n", u.sysname, u.release, u.machine, gnu_get_libc_version(), g_libdir);
+            for (i = 0; hostlibs[i]; i++) {
+              void *h = dlopen(hostlibs[i], RTLD_NOW | RTLD_GLOBAL);
+              L("[host] %-16s %s%s\n", hostlibs[i], h ? "ok" : "GAGAL: ", h ? "" : dlerror());
+              if (h && !strcmp(hostlibs[i], "libEGL.so.1")) h_egl = h;
+              if (h && !strcmp(hostlibs[i], "libGLESv2.so.2")) h_gles = h;
+            }
+            for (i = 0; gamelibs[i]; i++) if (load_mod(g_libdir, gamelibs[i]) != 0) { L("== GAGAL memuat %s ==\n", gamelibs[i]); return 1; }
+            for (i = 0; i < nmods; i++) bad += relocate(&mods[i], i);
+            report();
+            if ((f = fopen("/proc/self/status", "r"))) {
+              while (fgets(ln, sizeof ln, f)) if (!strncmp(ln, "VmPeak", 6) || !strncmp(ln, "VmRSS", 5)) L("%s", ln);
+              fclose(f);
+            }
+            L("\n== selesai (M0): relokasi tak-didukung=%d, unresolved=%d ==\n", bad, nunres);
+            fflush(NULL);
+            _exit(bad ? 1 : 0);   /* tidak ada destruktor/atexit */
+          }
+          EOF_C1
+          cat > out/LetMeEatM0.sh <<'EOF_SH1'
+          #!/bin/bash
+          # Let Me Eat M0 loader (armhf): muat + relokasi + laporan simbol. TIDAK menjalankan kode game.
+          # Folder game dicari: /$directory/ports/letmeeat|LetMeEat, di sebelah script ini, atau /mnt/sdcard|mmc/ports/LetMeEat
+          # Syarat: letmeeatloader ada di folder game; lib dibaca dari libs/ (kalau ada) atau lib/armeabi-v7a/ (hasil ekstrak APK).
+          XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
+          if [ -d "/opt/system/Tools/PortMaster/" ]; then controlfolder="/opt/system/Tools/PortMaster"
+          elif [ -d "/opt/tools/PortMaster/" ]; then controlfolder="/opt/tools/PortMaster"
+          elif [ -d "$XDG_DATA_HOME/PortMaster/" ]; then controlfolder="$XDG_DATA_HOME/PortMaster"
+          else controlfolder="/roms/ports/PortMaster"; fi
+          [ -f "$controlfolder/control.txt" ] && source "$controlfolder/control.txt"
+          [ -f "${controlfolder}/mod_${CFW_NAME}.txt" ] && source "${controlfolder}/mod_${CFW_NAME}.txt"
+
+          HERE="$(cd "$(dirname "$0")" && pwd)"
+          GAMEDIR=""
+          for c in "/$directory/ports/letmeeat" "/$directory/ports/LetMeEat" "$HERE/letmeeat" "$HERE/LetMeEat" \
+                   /mnt/sdcard/ports/LetMeEat /mnt/sdcard/ports/letmeeat /mnt/mmc/ports/LetMeEat /mnt/mmc/ports/letmeeat; do
+            if [ -f "$c/letmeeatloader" ]; then GAMEDIR="$c"; break; fi
+          done
+          if [ -z "$GAMEDIR" ]; then
+            echo "letmeeatloader tidak ketemu. Salin isi folder 'letmeeat' dari hasil build ke folder game (mis. /mnt/sdcard/ports/LetMeEat)." > "$HERE/letmeeat_error.txt"
+            exit 1
+          fi
+          cd "$GAMEDIR" || exit 1
+
+          LIBDIR="libs"
+          [ -f libs/libunity.so ] || LIBDIR="lib/armeabi-v7a"
+          export LD_LIBRARY_PATH="/usr/lib32:/lib32:${LD_LIBRARY_PATH}"
+          chmod +x ./letmeeatloader 2>/dev/null
+          rm -f m0_log.txt
+          echo "GAMEDIR=$GAMEDIR libdir=$LIBDIR" > m0_stdout.txt
+          if [ ! -f "$LIBDIR/libunity.so" ] || [ ! -f "$LIBDIR/libil2cpp.so" ] || [ ! -f "$LIBDIR/libmain.so" ]; then
+            echo "libmain.so/libunity.so/libil2cpp.so tidak ada di $GAMEDIR/$LIBDIR" >> m0_stdout.txt
+            sleep 3; exit 1
+          fi
+          ./letmeeatloader --libdir "$LIBDIR" --log m0_log.txt >> m0_stdout.txt 2>&1
+          echo "exit code: $?" >> m0_stdout.txt
+          sleep 2
+          type pm_finish >/dev/null 2>&1 && pm_finish
+          EOF_SH1
+          echo "Salin isi folder ini (letmeeatloader) ke folder game LetMeEat di Anbernic (sebelah lib/ dan assets/). LetMeEatM0.sh ke folder Ports muOS. Jalankan dari menu, lalu kirim m0_log.txt ke Claude. Jangan upload lib/APK game ke GitHub." > out/letmeeat/BACA-DULU.txt
+
+      - name: Kompilasi (armhf)
+        run: |
+          bash -n out/LetMeEatM0.sh
+          arm-linux-gnueabihf-gcc -std=gnu11 -O2 -Wall -Wextra -Wno-unused-parameter -o out/letmeeat/letmeeatloader src/letmeeatloader.c -ldl -lm
+          file out/letmeeat/letmeeatloader || true
+          arm-linux-gnueabihf-readelf -d out/letmeeat/letmeeatloader | grep NEEDED
+          MAXV=$(arm-linux-gnueabihf-readelf -V out/letmeeat/letmeeatloader | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -Vu | tail -1)
+          echo "letmeeatloader butuh GLIBC tertinggi: $MAXV (device armhf: 2.37)"
+          if [ "$(printf '%s\n%s\n' 2.37 "$MAXV" | sort -V | tail -1)" != "2.37" ]; then
+            echo "GAGAL: butuh glibc lebih baru dari 2.37. Simbol penyebab:"
+            arm-linux-gnueabihf-nm -D --undefined-only out/letmeeat/letmeeatloader | grep -E 'GLIBC_2\.(3[89]|[4-9][0-9])'
+            exit 1
+          fi
+
+      - name: Unggah hasil build
+        uses: actions/upload-artifact@v4
+        with:
+          name: letmeeat-m0-armhf
+          path: out
