@@ -4,7 +4,7 @@ on:
   push:
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Pasang toolchain ARM 32-bit
         run: |
@@ -1003,7 +1003,8 @@ jobs:
           MAXV=$(arm-linux-gnueabihf-readelf -V out/letmeeat/letmeeatloader | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -Vu | tail -1)
           echo "butuh GLIBC tertinggi: $MAXV (device armhf: 2.37)"
           if [ "$(printf '%s\n%s\n' 2.37 "$MAXV" | sort -V | tail -1)" != "2.37" ]; then
-            echo "GAGAL: butuh glibc lebih baru dari 2.37"
+            echo "GAGAL: butuh glibc lebih baru dari 2.37. Simbol penyebab:"
+            arm-linux-gnueabihf-nm -D --undefined-only out/letmeeat/letmeeatloader | grep -E 'GLIBC_2\.(3[89]|[4-9][0-9])' || true
             exit 1
           fi
       - name: Siapkan paket
