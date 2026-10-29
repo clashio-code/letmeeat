@@ -658,7 +658,8 @@ jobs:
           static const char *shim_hit[512];static int nshim_hit;
           static int cnt_self,cnt_mod,cnt_shim,cnt_libc,cnt_gl,cnt_unres,cnt_weak0,cnt_fpwarn;
           static void *h_gles,*h_egl,*h_z;
-          static int trap_unres(int);static int jni_trap(int);static const char*g_jl_name;static const void*g_jl_argp;
+          static int trap_unres(int);static int jni_trap(int);static const char*g_jr_n[16];static const void*g_jr_p[16];static unsigned g_jr_i;
+          #define JL(nm,p) do{unsigned _k=g_jr_i++&15u;g_jr_n[_k]=(nm);g_jr_p[_k]=(const void*)(p);}while(0)
           static void *b_dlopen(const char *,int);static void *b_dlsym(void *,const char *);static int b_dlclose(void *);static char *b_dlerror(void);static void *b_dladdr(void *,void *);static int b_dl_iterate_phdr(int(*)(struct dl_phdr_info *,size_t,void *),void *);static void *b_dl_unwind_find_exidx(uintptr_t,int *);
           #include "stubs.inc"
           static int trap_unres(int i){L("*** unresolved dipanggil: %s ***\n",i>=0&&i<nunres?unres_name[i]:"?");_exit(3);return 0;}
@@ -685,7 +686,7 @@ jobs:
           static void*mod_find(const Mod*,const char*);
           static Native*find_native(const char*c,const char*n){int i;for(i=0;i<g_nnat;i++)if(!strcmp(g_natives[i].name,n)&&(!c||strstr(g_natives[i].cls,c)))return &g_natives[i];return NULL;}
           static int collect_va(const char*s,va_list ap,jv*a){const char*p=s+1;int n=0;while(*p&&*p!=')'&&n<16){memset(&a[n],0,sizeof a[n]);while(*p=='[')p++;if(*p=='L'){a[n].l=va_arg(ap,void*);while(*p&&*p!=';')p++;}else if(*p=='J')a[n].j=va_arg(ap,int64_t);else if(*p=='F')a[n].f=(float)va_arg(ap,double);else if(*p=='D')a[n].d=va_arg(ap,double);else a[n].i=va_arg(ap,int);if(*p)p++;n++;}return n;}
-          static void java_invoke(void*mid,const jv*a,jv*r){MInfo*m=mi_get(mid);g_jl_name="CallXMethod";g_jl_argp=mid;const char*rp;char rt;memset(r,0,sizeof*r);if(!m)return;m->count++;rp=strchr(m->sig,')');rt=rp?rp[1]:'V';if(m->count<5)L("[JNI] %s.%s%s\n",m->cls,m->name,m->sig);
+          static void java_invoke(void*mid,const jv*a,jv*r){MInfo*m=mi_get(mid);JL("CallXMethod",mid);const char*rp;char rt;memset(r,0,sizeof*r);if(!m)return;m->count++;rp=strchr(m->sig,')');rt=rp?rp[1]:'V';if(m->count<5)L("[JNI] %s.%s%s\n",m->cls,m->name,m->sig);
            /* --- MotionEvent: Unity membaca state sentuhan lewat method getter --- */
            if(!strcmp(m->name,"getAction"))r->i=g_mev.action;
            else if(!strcmp(m->name,"getActionMasked"))r->i=g_mev.action&0xff;
@@ -727,12 +728,12 @@ jobs:
           DEFCALL(Double,double,r.d,AAPCS)
           #define VOIDCALL(N) static void j_Call##N##Method(void*e,void*o,void*m,...){va_list ap;jv a[16]={0},r;(void)e;(void)o;va_start(ap,m);PREP(m,ap,a);va_end(ap);java_invoke(m,a,&r);} static void j_Call##N##MethodV(void*e,void*o,void*m,va_list ap){jv a[16]={0},r;(void)e;(void)o;PREP(m,ap,a);java_invoke(m,a,&r);} static void j_Call##N##MethodA(void*e,void*o,void*m,const jv*a){jv r;(void)e;(void)o;java_invoke(m,a,&r);} static void j_CallStatic##N##Method(void*e,void*o,void*m,...){va_list ap;jv a[16]={0},r;(void)e;(void)o;va_start(ap,m);PREP(m,ap,a);va_end(ap);java_invoke(m,a,&r);} static void j_CallStatic##N##MethodV(void*e,void*o,void*m,va_list ap){jv a[16]={0},r;(void)e;(void)o;PREP(m,ap,a);java_invoke(m,a,&r);} static void j_CallStatic##N##MethodA(void*e,void*o,void*m,const jv*a){jv r;(void)e;(void)o;java_invoke(m,a,&r);}
           VOIDCALL(Void)
-          static int jni_trap(int i){g_jl_name=jni_names[i];g_jl_argp=NULL;L("[JNI] slot %d %s belum dipasang\n",i,jni_names[i]);return 0;}
-          static int j_GetVersion(void*e){(void)e;return 0x10006;}static void*j_FindClass(void*e,const char*n){(void)e;g_jl_name="FindClass";g_jl_argp=n;return mk_handle(n);}static void*j_GetObjectClass(void*e,void*o){(void)e;g_jl_name="GetObjectClass";g_jl_argp=o;return mk_handle(h2s(o));}
-          static void*j_GetMethodID(void*e,void*c,const char*n,const char*s){(void)e;g_jl_name="GetMethodID";g_jl_argp=n;return mk_method(h2s(c),n,s,0);}static void*j_GetStaticMethodID(void*e,void*c,const char*n,const char*s){(void)e;g_jl_name="GetStaticMethodID";g_jl_argp=n;return mk_method(h2s(c),n,s,1);}static void*j_GetFieldID(void*e,void*c,const char*n,const char*s){(void)e;(void)s;return mk_handle(n);}
+          static int jni_trap(int i){JL(jni_names[i],NULL);L("[JNI] slot %d %s belum dipasang\n",i,jni_names[i]);return 0;}
+          static int j_GetVersion(void*e){(void)e;return 0x10006;}static void*j_FindClass(void*e,const char*n){(void)e;JL("FindClass",n);return mk_handle(n);}static void*j_GetObjectClass(void*e,void*o){(void)e;JL("GetObjectClass",o);return mk_handle(h2s(o));}
+          static void*j_GetMethodID(void*e,void*c,const char*n,const char*s){(void)e;JL("GetMethodID",n);return mk_method(h2s(c),n,s,0);}static void*j_GetStaticMethodID(void*e,void*c,const char*n,const char*s){(void)e;JL("GetStaticMethodID",n);return mk_method(h2s(c),n,s,1);}static void*j_GetFieldID(void*e,void*c,const char*n,const char*s){(void)e;(void)s;JL("GetFieldID",n);return mk_handle(n);}
           static void*j_NewObject(void*e,void*c,void*m,...){(void)e;(void)m;return mk_obj(h2s(c));}static void*j_NewObjectV(void*e,void*c,void*m,va_list a){(void)e;(void)m;(void)a;return mk_obj(h2s(c));}static void*j_NewObjectA(void*e,void*c,void*m,const jv*a){(void)e;(void)m;(void)a;return mk_obj(h2s(c));}static void*j_AllocObject(void*e,void*c){(void)e;return mk_obj(h2s(c));}
           static void*j_ident(void*e,void*o){(void)e;return o;}static void j_void2(void*e,void*o){(void)e;(void)o;}static int j_zero1(void*e){(void)e;return 0;}static int j_zero2(void*e,int a){(void)e;(void)a;return 0;}
-          static void*j_NewStringUTF(void*e,const char*s){(void)e;g_jl_name="NewStringUTF";g_jl_argp=s;return mk_handle(s?s:"");}static int j_GetStringUTFLength(void*e,void*s){(void)e;return(int)strlen(h2s(s));}static const char*j_GetStringUTFChars(void*e,void*s,uint8_t*c){(void)e;g_jl_name="GetStringUTFChars";g_jl_argp=s;if(c)*c=0;return h2s(s);}static void j_ReleaseStringUTFChars(void*e,void*s,const char*c){(void)e;(void)s;(void)c;}
+          static void*j_NewStringUTF(void*e,const char*s){(void)e;JL("NewStringUTF",s);return mk_handle(s?s:"");}static int j_GetStringUTFLength(void*e,void*s){(void)e;return(int)strlen(h2s(s));}static const char*j_GetStringUTFChars(void*e,void*s,uint8_t*c){(void)e;JL("GetStringUTFChars",s);if(c)*c=0;return h2s(s);}static void j_ReleaseStringUTFChars(void*e,void*s,const char*c){(void)e;(void)s;(void)c;}
           static int j_ExceptionCheck(void*e){(void)e;return 0;}static void j_FatalError(void*e,const char*m){(void)e;L("JNI FatalError: %s\n",m?m:"");_exit(6);}static int j_RegisterNatives(void*e,void*c,const NativeMethod*m,int n){int i;(void)e;L("[JNI] RegisterNatives(%s,%d)\n",h2s(c),n);for(i=0;i<n&&g_nnat<1400;i++){Native*x=&g_natives[g_nnat++];snprintf(x->cls,sizeof x->cls,"%s",h2s(c));snprintf(x->name,sizeof x->name,"%s",m[i].name);snprintf(x->sig,sizeof x->sig,"%s",m[i].sig);x->fn=m[i].fn;x->mod=mod_of((uintptr_t)m[i].fn);}return 0;}
           static int j_GetJavaVM(void*e,void**v){(void)e;*v=(void*)&g_vmobj;return 0;}static int vm_Destroy(void*v){(void)v;return 0;}static int vm_Attach(void*v,void**e,void*a){(void)v;(void)a;*e=(void*)&g_envobj;return 0;}static int vm_GetEnv(void*v,void**e,int ver){(void)v;(void)ver;*e=(void*)&g_envobj;return 0;}
           #define SETFAM(b,N) do{g_jni_table[b]=(void*)j_Call##N##Method;g_jni_table[b+1]=(void*)j_Call##N##MethodV;g_jni_table[b+2]=(void*)j_Call##N##MethodA;g_jni_table[b+80]=(void*)j_CallStatic##N##Method;g_jni_table[b+81]=(void*)j_CallStatic##N##MethodV;g_jni_table[b+82]=(void*)j_CallStatic##N##MethodA;}while(0)
@@ -986,7 +987,26 @@ jobs:
 
           static int j_Register(void*e,void*c,const NativeMethod*m,int n){int i;(void)e;for(i=0;i<n&&g_nnat<1400;i++){Native*x=&g_natives[g_nnat++];snprintf(x->cls,sizeof x->cls,"%s",h2s(c));snprintf(x->name,sizeof x->name,"%s",m[i].name);snprintf(x->sig,sizeof x->sig,"%s",m[i].sig);x->fn=m[i].fn;x->mod=mod_of((uintptr_t)m[i].fn);}L("[JNI] RegisterNatives(%s, %d)\n",h2s(c),n);return 0;}
           static void*j_null1(void*e){(void)e;return NULL;}static void j_void1(void*e){(void)e;}static uint8_t j_same(void*e,void*a,void*b){(void)e;return a==b;}
-          static void init_jni_table(void){int i;for(i=0;i<256;i++)g_jni_table[i]=jstubs[i];g_jni_table[4]=j_GetVersion;g_jni_table[6]=j_FindClass;g_jni_table[15]=j_null1;g_jni_table[16]=j_void1;g_jni_table[17]=j_void1;g_jni_table[19]=j_zero2;g_jni_table[20]=j_ident;g_jni_table[21]=j_ident;g_jni_table[22]=j_void2;g_jni_table[23]=j_void2;g_jni_table[24]=j_same;g_jni_table[25]=j_ident;g_jni_table[26]=j_zero2;g_jni_table[217]=j_zero2;g_jni_table[218]=j_zero2;g_jni_table[226]=j_ident;g_jni_table[227]=j_void2;g_jni_table[232]=j_zero2;g_jni_table[27]=j_AllocObject;g_jni_table[28]=j_NewObject;g_jni_table[29]=j_NewObjectV;g_jni_table[30]=j_NewObjectA;g_jni_table[31]=j_GetObjectClass;g_jni_table[33]=j_GetMethodID;SETFAM(34,Object);SETFAM(37,Boolean);SETFAM(49,Int);SETFAM(52,Long);SETFAM(55,Float);SETFAM(58,Double);SETFAM(61,Void);g_jni_table[94]=j_GetFieldID;g_jni_table[113]=j_GetStaticMethodID;g_jni_table[144]=j_GetFieldID;g_jni_table[167]=j_NewStringUTF;g_jni_table[168]=j_GetStringUTFLength;g_jni_table[169]=j_GetStringUTFChars;g_jni_table[170]=j_ReleaseStringUTFChars;g_jni_table[215]=j_Register;g_jni_table[219]=j_GetJavaVM;g_jni_table[228]=j_ExceptionCheck;g_jni_table[18]=j_FatalError;g_vm_table[3]=vm_Destroy;g_vm_table[4]=vm_Attach;g_vm_table[6]=vm_GetEnv;g_vm_table[7]=vm_Attach;}
+          
+          static uint8_t j_inst(void*e,void*o,void*c){(void)e;(void)o;(void)c;return 1;}
+          static void*j_NewObjArr(void*e,int n,void*c,void*i){(void)e;(void)n;(void)c;(void)i;return mk_obj("array/Object");}
+          static const char*sf_val(const char*n){
+           static const char*const t[][2]={{"MANUFACTURER","Anbernic"},{"MODEL","RG40XXV"},{"BRAND","Anbernic"},{"DEVICE","rg40xxv"},{"PRODUCT","rg40xxv"},{"HARDWARE","linux"},{"BOARD","rg40xxv"},{"DISPLAY","rg40xxv"},{"ID","rg40xxv"},{"HOST","localhost"},{"TAGS","release-keys"},{"TYPE","user"},{"USER","user"},{"CPU_ABI","armeabi-v7a"},{"CPU_ABI2",""},{"FINGERPRINT","Anbernic/rg40xxv/rg40xxv:10/QP1A/1:user/release-keys"},{"RELEASE","10"},{"CODENAME","REL"},{"INCREMENTAL","1"},{"MEDIA_MOUNTED","mounted"},{NULL,NULL}};
+           int i;for(i=0;t[i][0];i++)if(!strcmp(t[i][0],n))return t[i][1];return "";}
+          static void*j_GetStaticObjectField(void*e,void*c,void*f){(void)e;(void)c;JL("GetStaticObjectField",f);return mk_handle(sf_val(h2s(f)));}
+          static int j_GetStaticIntField(void*e,void*c,void*f){const char*n=h2s(f);(void)e;(void)c;JL("GetStaticIntField",f);if(!strcmp(n,"SDK_INT"))return 30;if(!strcmp(n,"MODE_PRIVATE"))return 0;return 0;}
+          static int j_GetIntField(void*e,void*o,void*f){const char*n=h2s(f);(void)e;(void)o;JL("GetIntField",f);if(!strcmp(n,"targetSdkVersion"))return 30;if(!strcmp(n,"minSdkVersion"))return 21;if(!strcmp(n,"versionCode"))return 1;return 0;}
+          static void*j_GetObjectField(void*e,void*o,void*f){const char*n=h2s(f);(void)e;(void)o;JL("GetObjectField",f);
+           if(!strcmp(n,"nativeLibraryDir"))return mk_handle(g_libdir);
+           if(!strcmp(n,"sourceDir")||!strcmp(n,"publicSourceDir"))return mk_handle(g_assets);
+           if(!strcmp(n,"dataDir")||!strcmp(n,"deviceProtectedDataDir"))return mk_handle("/tmp/letmeeat");
+           if(!strcmp(n,"packageName"))return mk_handle("com.letmeeat.game");
+           if(!strcmp(n,"versionName"))return mk_handle("1.0");
+           return NULL;}
+          static int j_GetStringLength(void*e,void*s){(void)e;return(int)strlen(h2s(s));}
+          static uint16_t*j_GetStringChars(void*e,void*s,uint8_t*c){const char*p=h2s(s);size_t n=strlen(p),i;uint16_t*w=malloc((n+1)*2);(void)e;if(!w)return NULL;for(i=0;i<=n;i++)w[i]=(uint8_t)p[i];if(c)*c=1;return w;}
+          static void j_ReleaseStringChars(void*e,void*s,uint16_t*w){(void)e;(void)s;free(w);}
+          static void init_jni_table(void){int i;for(i=0;i<256;i++)g_jni_table[i]=jstubs[i];g_jni_table[4]=j_GetVersion;g_jni_table[6]=j_FindClass;g_jni_table[15]=j_null1;g_jni_table[16]=j_void1;g_jni_table[17]=j_void1;g_jni_table[19]=j_zero2;g_jni_table[20]=j_ident;g_jni_table[21]=j_ident;g_jni_table[22]=j_void2;g_jni_table[23]=j_void2;g_jni_table[24]=j_same;g_jni_table[25]=j_ident;g_jni_table[26]=j_zero2;g_jni_table[217]=j_zero2;g_jni_table[218]=j_zero2;g_jni_table[226]=j_ident;g_jni_table[227]=j_void2;g_jni_table[232]=j_zero2;g_jni_table[32]=j_inst;g_jni_table[95]=j_GetObjectField;g_jni_table[100]=j_GetIntField;g_jni_table[145]=j_GetStaticObjectField;g_jni_table[150]=j_GetStaticIntField;g_jni_table[164]=j_GetStringLength;g_jni_table[165]=j_GetStringChars;g_jni_table[166]=j_ReleaseStringChars;g_jni_table[171]=j_zero1;g_jni_table[172]=j_NewObjArr;g_jni_table[173]=j_null1;g_jni_table[174]=j_void1;g_jni_table[27]=j_AllocObject;g_jni_table[28]=j_NewObject;g_jni_table[29]=j_NewObjectV;g_jni_table[30]=j_NewObjectA;g_jni_table[31]=j_GetObjectClass;g_jni_table[33]=j_GetMethodID;SETFAM(34,Object);SETFAM(37,Boolean);SETFAM(49,Int);SETFAM(52,Long);SETFAM(55,Float);SETFAM(58,Double);SETFAM(61,Void);g_jni_table[94]=j_GetFieldID;g_jni_table[113]=j_GetStaticMethodID;g_jni_table[144]=j_GetFieldID;g_jni_table[167]=j_NewStringUTF;g_jni_table[168]=j_GetStringUTFLength;g_jni_table[169]=j_GetStringUTFChars;g_jni_table[170]=j_ReleaseStringUTFChars;g_jni_table[215]=j_Register;g_jni_table[219]=j_GetJavaVM;g_jni_table[228]=j_ExceptionCheck;g_jni_table[18]=j_FatalError;g_vm_table[3]=vm_Destroy;g_vm_table[4]=vm_Attach;g_vm_table[6]=vm_GetEnv;g_vm_table[7]=vm_Attach;}
 
           static int gfx_ready;
           static void init_host_libs(void){
@@ -1018,21 +1038,26 @@ jobs:
                if(stall_max>0&&stall_s>=stall_max){L("[m2] STALL %d detik -> berhenti (tidak hang selamanya)\n",stall_s);g_m2_done=1;break;}}}}}
             pthread_join(t,NULL);}
 
-          static void symof(uintptr_t a,char*b,size_t n){Mod*m=mod_of(a);Dl_info d;if(m){snprintf(b,n,"%s+0x%lx",m->name,(unsigned long)(a-m->bias));return;}memset(&d,0,sizeof d);if(a>0x10000&&dladdr((void*)a,&d)&&d.dli_fname){const char*f=strrchr(d.dli_fname,'/');snprintf(b,n,"%s(%s)+0x%lx",f?f+1:d.dli_fname,d.dli_sname?d.dli_sname:"?",(unsigned long)(a-(uintptr_t)(d.dli_saddr?d.dli_saddr:d.dli_fbase)));return;}snprintf(b,n,"-");}
+          
+          static Elf32_Sym*ls_sym;static const char*ls_str;static int ls_n;static void*ls_base;
+          static void ls_load(void){int fd,i;struct stat st;uint8_t*m;Elf32_Ehdr*e;Elf32_Shdr*sh;Dl_info di;if(ls_sym)return;memset(&di,0,sizeof di);if(!dladdr((void*)ls_load,&di))return;ls_base=di.dli_fbase;fd=open("/proc/self/exe",O_RDONLY);if(fd<0)return;if(fstat(fd,&st)||st.st_size<64){close(fd);return;}m=mmap(NULL,(size_t)st.st_size,PROT_READ,MAP_PRIVATE,fd,0);close(fd);if(m==MAP_FAILED)return;e=(Elf32_Ehdr*)m;if(memcmp(e->e_ident,ELFMAG,4)||!e->e_shoff)return;sh=(Elf32_Shdr*)(m+e->e_shoff);for(i=0;i<e->e_shnum;i++)if(sh[i].sh_type==SHT_SYMTAB){ls_sym=(Elf32_Sym*)(m+sh[i].sh_offset);ls_n=(int)(sh[i].sh_size/sizeof(Elf32_Sym));ls_str=(const char*)(m+sh[sh[i].sh_link].sh_offset);}}
+          static const char*ls_name(uintptr_t off,uintptr_t*start){int i;const char*best=NULL;uintptr_t bv=0;for(i=0;i<ls_n;i++){Elf32_Sym*y=&ls_sym[i];uintptr_t v;if((y->st_info&0xf)!=STT_FUNC||!y->st_value)continue;v=y->st_value&~1u;if(v<=off&&v>=bv&&(y->st_size?off<v+y->st_size:off-v<64)){bv=v;best=ls_str+y->st_name;}}if(start)*start=bv;return best;}
+          static void symof(uintptr_t a,char*b,size_t n){Mod*m=mod_of(a);Dl_info d;if(m){snprintf(b,n,"%s+0x%lx",m->name,(unsigned long)(a-m->bias));return;}memset(&d,0,sizeof d);if(a>0x10000&&dladdr((void*)a,&d)&&d.dli_fname){const char*f=strrchr(d.dli_fname,'/');if(ls_sym&&d.dli_fbase==ls_base){uintptr_t st=0;const char*nm=ls_name(a-(uintptr_t)d.dli_fbase,&st);if(nm){snprintf(b,n,"LOADER:%s+0x%lx",nm,(unsigned long)(a-(uintptr_t)d.dli_fbase-st));return;}}snprintf(b,n,"%s(%s)+0x%lx",f?f+1:d.dli_fname,d.dli_sname?d.dli_sname:"?",(unsigned long)(a-(uintptr_t)(d.dli_saddr?d.dli_saddr:d.dli_fbase)));return;}snprintf(b,n,"-");}
           static void on_sig(int s,siginfo_t*i,void*c){ucontext_t*u=c;uintptr_t pc=0,lr=0,sp=0;char sb[240];int k,pr=0;
           #if defined(__arm__)
           pc=u->uc_mcontext.arm_pc;lr=u->uc_mcontext.arm_lr;sp=u->uc_mcontext.arm_sp;
           #elif defined(__x86_64__)
           pc=(uintptr_t)u->uc_mcontext.gregs[REG_RIP];
           #endif
+          ls_load();
           L("\n*** signal %d addr=%p pc=%p lr=%p sp=%p ***\n",s,i?i->si_addr:NULL,(void*)pc,(void*)lr,(void*)sp);
           symof(pc,sb,sizeof sb);L("  pc : %s\n",sb);symof(lr,sb,sizeof sb);L("  lr : %s\n",sb);
           #if defined(__arm__)
           L("  r0=%08lx r1=%08lx r2=%08lx r3=%08lx r4=%08lx r5=%08lx\n",u->uc_mcontext.arm_r0,u->uc_mcontext.arm_r1,u->uc_mcontext.arm_r2,u->uc_mcontext.arm_r3,u->uc_mcontext.arm_r4,u->uc_mcontext.arm_r5);
           L("  r6=%08lx r7=%08lx r8=%08lx r9=%08lx r10=%08lx fp=%08lx ip=%08lx\n",u->uc_mcontext.arm_r6,u->uc_mcontext.arm_r7,u->uc_mcontext.arm_r8,u->uc_mcontext.arm_r9,u->uc_mcontext.arm_r10,u->uc_mcontext.arm_fp,u->uc_mcontext.arm_ip);
           #endif
-          L("  [JNI terakhir] %s arg=%p\n",g_jl_name?g_jl_name:"-",g_jl_argp);
-          if(sp>0x10000){L("  stack scan:\n");for(k=0;k<256&&pr<24;k++){uintptr_t v=((uintptr_t*)sp)[k];symof(v,sb,sizeof sb);if(sb[0]!='-'){L("   sp+%03d: %08lx %s\n",k*4,(unsigned long)v,sb);pr++;}}}
+          L("  [8 panggilan JNI terakhir, terbaru di bawah]\n");for(k=0;k<8;k++){unsigned q=(g_jr_i+8+(unsigned)k)&15u;const char*nm=g_jr_n[q];if(nm)L("   %s arg=%p\n",nm,g_jr_p[q]);}
+          if(sp>0x10000){L("  stack scan:\n");for(k=0;k<400&&pr<40;k++){uintptr_t v=((uintptr_t*)sp)[k];symof(v,sb,sizeof sb);if(sb[0]!='-'){L("   sp+%03d: %08lx %s\n",k*4,(unsigned long)v,sb);pr++;}}}
           fflush(NULL);_exit(128+s);}
           static void alarm_handler(int s){(void)s;L("[watchdog] timeout\n");_exit(4);}
           static int pint(const char*s){int n=0;while(*s>='0'&&*s<='9')n=n*10+*s++-'0';return n;}
