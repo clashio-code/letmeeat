@@ -664,6 +664,8 @@ jobs:
           static int trap_unres(int i){L("*** unresolved dipanggil: %s ***\n",i>=0&&i<nunres?unres_name[i]:"?");_exit(3);return 0;}
 
           typedef union{int32_t i;int64_t j;float f;double d;void*l;} jv;
+          /* window Android palsu (dipakai juga GetIntField: widthPixels/heightPixels) */
+          typedef struct{int w,h,fmt,refs;}NWin;static NWin g_nwin={640,480,1,1};
           /* state sentuhan virtual (dipakai juga oleh handler JNI MotionEvent di bawah) */
           typedef struct{int action;float x,y;int seq,tool,id;uint64_t when,down;float pres,area;int state;float precision;}MotEv;
           static MotEv g_mev={0};static int g_have_mev;static int g_injected;static void*motion_obj;static int touch_seq;
@@ -671,8 +673,12 @@ jobs:
           static char *reg_str[8192];static int reg_n,obj_serial;
           static const void *g_jni_table[256],*g_vm_table[16];
           static void *g_envobj=(void*)g_jni_table,*g_vmobj=(void*)g_vm_table;
+          /* Ring buffer panggilan JNI terakhir -> diagnostics crash. */
+          static const char*g_jr_n[16];static const void*g_jr_p[16];static unsigned g_jr_i;
+          #define JL(nm,p) do{unsigned _k=g_jr_i++&15u;g_jr_n[_k]=(nm);g_jr_p[_k]=(const void*)(p);}while(0)
           static void *mk_handle(const char*s){int i;for(i=0;i<reg_n;i++)if(!strcmp(reg_str[i],s))return(void*)(uintptr_t)(0x70000000u+4u*(uint32_t)i);if(reg_n>=8192)return(void*)0x70000000u;reg_str[reg_n]=strdup(s?s:"");return(void*)(uintptr_t)(0x70000000u+4u*(uint32_t)reg_n++);}
           static const char*h2s(void*h){uintptr_t v=(uintptr_t)h;if(v>=0x70000000u&&(v-0x70000000u)/4u<(uintptr_t)reg_n)return reg_str[(v-0x70000000u)/4u];return "?";}
+          static const char*h2sn(void*h);
           static void*mk_obj(const char*c){char b[200];snprintf(b,sizeof b,"obj:%s#%d",c,++obj_serial);return mk_handle(b);}
           typedef struct{char cls[96],name[64],sig[160];int st;unsigned count;}MInfo;static MInfo minfo[1024];static int nminfo;
           static void*mk_method(const char*c,const char*n,const char*s,int st){int i;for(i=0;i<nminfo;i++)if(!strcmp(minfo[i].cls,c)&&!strcmp(minfo[i].name,n)&&!strcmp(minfo[i].sig,s)&&minfo[i].st==st)return(void*)(uintptr_t)(0x71000000u+4u*(uint32_t)i);if(nminfo>=1024)i=1023;else i=nminfo++;snprintf(minfo[i].cls,sizeof minfo[i].cls,"%s",c);snprintf(minfo[i].name,sizeof minfo[i].name,"%s",n);snprintf(minfo[i].sig,sizeof minfo[i].sig,"%s",s);minfo[i].st=st;return(void*)(uintptr_t)(0x71000000u+4u*(uint32_t)i);}
@@ -685,7 +691,7 @@ jobs:
           static void*mod_find(const Mod*,const char*);
           static Native*find_native(const char*c,const char*n){int i;for(i=0;i<g_nnat;i++)if(!strcmp(g_natives[i].name,n)&&(!c||strstr(g_natives[i].cls,c)))return &g_natives[i];return NULL;}
           static int collect_va(const char*s,va_list ap,jv*a){const char*p=s+1;int n=0;while(*p&&*p!=')'&&n<16){memset(&a[n],0,sizeof a[n]);while(*p=='[')p++;if(*p=='L'){a[n].l=va_arg(ap,void*);while(*p&&*p!=';')p++;}else if(*p=='J')a[n].j=va_arg(ap,int64_t);else if(*p=='F')a[n].f=(float)va_arg(ap,double);else if(*p=='D')a[n].d=va_arg(ap,double);else a[n].i=va_arg(ap,int);if(*p)p++;n++;}return n;}
-          static void java_invoke(void*mid,const jv*a,jv*r){MInfo*m=mi_get(mid);const char*rp;char rt;memset(r,0,sizeof*r);if(!m)return;m->count++;rp=strchr(m->sig,')');rt=rp?rp[1]:'V';if(m->count<5)L("[JNI] %s.%s%s\n",m->cls,m->name,m->sig);
+          static void java_invoke(void*mid,const jv*a,jv*r){MInfo*m=mi_get(mid);const char*rp;char rt;memset(r,0,sizeof*r);if(!m)return;JL("CallMethod",mid);m->count++;rp=strchr(m->sig,')');rt=rp?rp[1]:'V';if(m->count<5)L("[JNI] %s.%s%s\n",m->cls,m->name,m->sig);
            /* --- MotionEvent: Unity membaca state sentuhan lewat method getter --- */
            if(!strcmp(m->name,"getAction"))r->i=g_mev.action;
            else if(!strcmp(m->name,"getActionMasked"))r->i=g_mev.action&0xff;
@@ -713,6 +719,7 @@ jobs:
            else if(!strcmp(m->name,"getAssets"))r->l=mk_obj("android/content/res/AssetManager");
            else if(!strcmp(m->name,"getMainLooper"))r->l=mk_obj("android/os/Looper");
            else if(!strcmp(m->name,"getLanguageCode"))r->l=mk_handle("en");
+           else if(!strcmp(m->name,"getLibrary")){char p[512];snprintf(p,sizeof p,"%s/lib%s.so",g_libdir,h2sn(a[0].l));r->l=mk_handle(p);}
            else if(!strcmp(m->name,"getRawAssetFileOffset")||!strcmp(m->name,"getRawAssetFileLength")){char p[800];struct stat st;snprintf(p,sizeof p,"%s/%s",g_assets,h2s(a[0].l));r->j=stat(p,&st)==0?(!strcmp(m->name,"getRawAssetFileOffset")?0:(int64_t)st.st_size):0;}
            else if(rt=='L'&&rp&&!strcmp(rp+1,"Ljava/lang/String;"))r->l=mk_handle("");
            else if(rt=='L'&&rp){char c[128];const char*q=rp+2;size_t k=0;while(*q&&*q!=';'&&k<sizeof(c)-1)c[k++]=*q++;c[k]=0;r->l=mk_obj(c);}
@@ -727,16 +734,64 @@ jobs:
           DEFCALL(Double,double,r.d,AAPCS)
           #define VOIDCALL(N) static void j_Call##N##Method(void*e,void*o,void*m,...){va_list ap;jv a[16]={0},r;(void)e;(void)o;va_start(ap,m);PREP(m,ap,a);va_end(ap);java_invoke(m,a,&r);} static void j_Call##N##MethodV(void*e,void*o,void*m,va_list ap){jv a[16]={0},r;(void)e;(void)o;PREP(m,ap,a);java_invoke(m,a,&r);} static void j_Call##N##MethodA(void*e,void*o,void*m,const jv*a){jv r;(void)e;(void)o;java_invoke(m,a,&r);} static void j_CallStatic##N##Method(void*e,void*o,void*m,...){va_list ap;jv a[16]={0},r;(void)e;(void)o;va_start(ap,m);PREP(m,ap,a);va_end(ap);java_invoke(m,a,&r);} static void j_CallStatic##N##MethodV(void*e,void*o,void*m,va_list ap){jv a[16]={0},r;(void)e;(void)o;PREP(m,ap,a);java_invoke(m,a,&r);} static void j_CallStatic##N##MethodA(void*e,void*o,void*m,const jv*a){jv r;(void)e;(void)o;java_invoke(m,a,&r);}
           VOIDCALL(Void)
-          static int jni_trap(int i){L("[JNI] slot %d %s belum dipasang\n",i,jni_names[i]);return 0;}
-          static int j_GetVersion(void*e){(void)e;return 0x10006;}static void*j_FindClass(void*e,const char*n){(void)e;return mk_handle(n);}static void*j_GetObjectClass(void*e,void*o){(void)e;return mk_handle(h2s(o));}
+          static int jni_trap(int i){L("[JNI] slot %d %s belum dipasang\n",i,jni_names[i]);JL(jni_names[i],NULL);return 0;}
+          /* (ring buffer panggilan JNI dideklarasikan di atas, sebelum java_invoke) */
+          static int j_GetVersion(void*e){(void)e;return 0x10006;}static void*j_FindClass(void*e,const char*n){(void)e;JL("FindClass",n);return mk_handle(n);}static void*j_GetObjectClass(void*e,void*o){(void)e;JL("GetObjectClass",o);return mk_handle(h2s(o));}
           static void*j_GetMethodID(void*e,void*c,const char*n,const char*s){(void)e;return mk_method(h2s(c),n,s,0);}static void*j_GetStaticMethodID(void*e,void*c,const char*n,const char*s){(void)e;return mk_method(h2s(c),n,s,1);}static void*j_GetFieldID(void*e,void*c,const char*n,const char*s){(void)e;(void)s;return mk_handle(n);}
           static void*j_NewObject(void*e,void*c,void*m,...){(void)e;(void)m;return mk_obj(h2s(c));}static void*j_NewObjectV(void*e,void*c,void*m,va_list a){(void)e;(void)m;(void)a;return mk_obj(h2s(c));}static void*j_NewObjectA(void*e,void*c,void*m,const jv*a){(void)e;(void)m;(void)a;return mk_obj(h2s(c));}static void*j_AllocObject(void*e,void*c){(void)e;return mk_obj(h2s(c));}
           static void*j_ident(void*e,void*o){(void)e;return o;}static void j_void2(void*e,void*o){(void)e;(void)o;}static int j_zero1(void*e){(void)e;return 0;}static int j_zero2(void*e,int a){(void)e;(void)a;return 0;}
           static void*j_NewStringUTF(void*e,const char*s){(void)e;return mk_handle(s?s:"");}static int j_GetStringUTFLength(void*e,void*s){(void)e;return(int)strlen(h2s(s));}static const char*j_GetStringUTFChars(void*e,void*s,uint8_t*c){(void)e;if(c)*c=0;return h2s(s);}static void j_ReleaseStringUTFChars(void*e,void*s,const char*c){(void)e;(void)s;(void)c;}
-          static int j_ExceptionCheck(void*e){(void)e;return 0;}static void j_FatalError(void*e,const char*m){(void)e;L("JNI FatalError: %s\n",m?m:"");_exit(6);}static int j_RegisterNatives(void*e,void*c,const NativeMethod*m,int n){int i;(void)e;L("[JNI] RegisterNatives(%s,%d)\n",h2s(c),n);for(i=0;i<n&&g_nnat<1400;i++){Native*x=&g_natives[g_nnat++];snprintf(x->cls,sizeof x->cls,"%s",h2s(c));snprintf(x->name,sizeof x->name,"%s",m[i].name);snprintf(x->sig,sizeof x->sig,"%s",m[i].sig);x->fn=m[i].fn;x->mod=mod_of((uintptr_t)m[i].fn);}return 0;}
+
+          /* --- JNI lengkap: ref global/local, exception, string UTF-16, field, array ---
+             NewGlobalRef yang mengembalikan NULL bikin setiap objek Java Unity jadi NULL ->
+             class handle kosong ("?.getClassLoader") lalu crash native. Semua slot ini WAJIB
+             dipasang;-stub bawaan hanya log dan return 0 (NULL) -> nanti dereference NULL. */
+          static const char*h2sn(void*h){uintptr_t v=(uintptr_t)h;if(v>=0x70000000u&&(v-0x70000000u)/4u<(uintptr_t)reg_n)return reg_str[(v-0x70000000u)/4u];return "";}
+          static void j_noop2(void*e,void*o){(void)e;(void)o;}
+          static void* j_nullret(void*e,void*o){(void)e;(void)o;return NULL;}
+          static void* j_same(void*e,void*o){(void)e;return o;}
+          static int j_same_q(void*e,void*a,void*b){(void)e;return a==b;}
+          static int j_pushframe(void*e,int c){(void)e;(void)c;return 0;}
+          static void* j_popframe(void*e,void*f){(void)e;(void)f;return NULL;}
+          static void* j_exc(void*e){(void)e;return NULL;}
+          static uint8_t j_inst(void*e,void*o,void*c){(void)e;(void)o;(void)c;return 1;}
+          static void j_mon_noop(void*e,void*o){(void)e;(void)o;}
+          static int j_mon_zero(void*e,void*o){(void)e;(void)o;return 0;}
+          static void* j_weak_ident(void*e,void*o){(void)e;return o;}
+          static int j_globref_chk(void*e,void*o){(void)e;(void)o;return 1;}
+          /* Build.* static fields — Unity bertanya MANUFACTURER/MODEL/FINGERPRINT/CPU_ABI/RELEASE. */
+          static const char*sf_val(const char*n){
+           static const char*const t[][2]={{"MANUFACTURER","Anbernic"},{"MODEL","RG40XXV"},{"BRAND","Anbernic"},{"DEVICE","rg40xxv"},{"PRODUCT","rg40xxv"},{"HARDWARE","linux"},{"BOARD","rg40xxv"},{"DISPLAY","rg40xxv"},{"ID","rg40xxv"},{"HOST","localhost"},{"TAGS","release-keys"},{"TYPE","user"},{"USER","user"},{"CPU_ABI","armeabi-v7a"},{"CPU_ABI2",""},{"FINGERPRINT","Anbernic/rg40xxv/rg40xxv:10/QP1A/1:user/release-keys"},{"RELEASE","10"},{"CODENAME","REL"},{"INCREMENTAL","1"},{"MEDIA_MOUNTED","mounted"},{NULL,NULL}};
+           int i;for(i=0;t[i][0];i++)if(!strcmp(t[i][0],n))return t[i][1];return "";}
+          static void* j_GetStaticObjectField(void*e,void*c,void*f){(void)e;(void)c;JL("GetStaticObjectField",f);return mk_handle(sf_val(h2sn(f)));}
+          static int j_GetStaticIntField(void*e,void*c,void*f){const char*n=h2sn(f);(void)e;(void)c;JL("GetStaticIntField",f);if(strstr(n,"SDK_INT")||strstr(n,"VERSION.SDK"))return 30;if(strstr(n,"MODE_PRIVATE"))return 0;return 0;}
+          static int j_GetStringLength(void*e,void*s){(void)e;return(int)strlen(h2sn(s));}
+          static void* j_NewString(void*e,const uint16_t*u,int len){char b[1024];int i,o=0;(void)e;if(!u)return mk_handle("");for(i=0;i<len&&o<1000;i++){unsigned c=u[i];if(c<0x80)b[o++]=(char)c;else if(c<0x800){b[o++]=(char)(0xC0|(c>>6));b[o++]=(char)(0x80|(c&0x3f));}else{b[o++]=(char)(0xE0|(c>>12));b[o++]=(char)(0x80|((c>>6)&0x3f));b[o++]=(char)(0x80|(c&0x3f));}}b[o]=0;return mk_handle(b);}
+          #define SBUF_N 512
+          static uint16_t*g_sbuf[SBUF_N];static int g_sbuf_n;
+          static const uint16_t*j_GetStringChars(void*e,void*s,uint8_t*copy){const char*p=h2sn(s);uint16_t*o;size_t k=0;(void)e;if(copy)*copy=1;o=malloc((strlen(p)+1)*2);if(!o)return NULL;while(*p){unsigned c=(unsigned char)*p++;if(c>=0xE0&&p[0]&&p[1]){c=((c&0xf)<<12)|((unsigned)(p[0]&0x3f)<<6)|(p[1]&0x3f);p+=2;}else if(c>=0xC0&&p[0]){c=((c&0x1f)<<6)|(p[0]&0x3f);p+=1;}o[k++]=(uint16_t)c;}o[k]=0;if(g_sbuf_n<SBUF_N)g_sbuf[g_sbuf_n++]=o;return o;}
+          static void j_ReleaseStringChars(void*e,void*s,const uint16_t*c){int i;(void)e;(void)s;if(!c)return;for(i=0;i<g_sbuf_n;i++)if(g_sbuf[i]==c){g_sbuf[i]=NULL;break;}free((void*)c);}
+          static long j_GetIntField(void*e,void*o,void*f){const char*fn=h2sn(f);(void)e;(void)o;if(strstr(fn,"widthPixels"))return g_nwin.w;if(strstr(fn,"heightPixels"))return g_nwin.h;if(strstr(fn,"densityDpi"))return 160;if(strstr(fn,"SDK_INT"))return 30;if(strstr(fn,"MemoryClass"))return 128;if(strstr(fn,"targetSdkVersion")||strstr(fn,"targetSdk"))return 30;if(strstr(fn,"minSdkVersion")||strstr(fn,"minSdk")||strstr(fn,"minApiLevel"))return 21;if(strstr(fn,"versionCode"))return 1;return 0;}
+          static int64_t j_GetLongField(void*e,void*o,void*f){(void)e;(void)o;(void)f;return 0;}
+          static float j_GetFloatField(void*e,void*o,void*f){const char*fn=h2sn(f);(void)e;(void)o;if(strstr(fn,"density")||strstr(fn,"xdpi")||strstr(fn,"ydpi"))return 160.f;return 0.f;}
+          static double j_GetDoubleField(void*e,void*o,void*f){(void)e;(void)o;(void)f;return 0.0;}
+          static uint8_t j_GetBooleanField(void*e,void*o,void*f){(void)e;(void)o;(void)f;return 0;}
+          static void* j_GetObjectField(void*e,void*o,void*f){const char*fn=h2sn(f);(void)e;(void)o;if(!strcmp(fn,"nativeLibraryDir"))return mk_handle(g_libdir);if(!strcmp(fn,"sourceDir")||!strcmp(fn,"publicSourceDir"))return mk_handle(g_assets);if(!strcmp(fn,"dataDir")||!strcmp(fn,"deviceProtectedDataDir"))return mk_handle("/tmp/letmeeat");if(!strcmp(fn,"packageName"))return mk_handle("com.letmeeat.game");if(!strcmp(fn,"versionName"))return mk_handle("1.0");return NULL;}
+          typedef struct{char t;int len;void*data;}JArrM;static JArrM g_arrs[512];static int g_arr_n;
+          static void* j_NewObjectArray(void*e,int len,void*cls,void*init){JArrM*a;int i;(void)e;(void)cls;if(g_arr_n>=512)return NULL;a=&g_arrs[g_arr_n];a->t='L';a->len=len>0?len:0;a->data=calloc(a->len?(size_t)a->len:1,sizeof(void*));if(a->data&&init)for(i=0;i<a->len;i++)((void**)a->data)[i]=init;g_arr_n++;return(void*)(uintptr_t)(0x72000000u+(uint32_t)(g_arr_n-1)*4u);}
+          static JArrM*arrm_get(void*h){uintptr_t v=(uintptr_t)h;JArrM*a;if(v<0x72000000u||v>=0x72000000u+512u*4u)return NULL;a=&g_arrs[(v-0x72000000u)/4u];return a->data?a:NULL;}
+          static int j_GetArrayLength(void*e,void*arr){JArrM*a=arrm_get(arr);(void)e;return a?a->len:0;}
+          static void* j_GetObjectArrayElement(void*e,void*arr,int i){JArrM*a=arrm_get(arr);(void)e;if(!a||i<0||i>=a->len)return NULL;return((void**)a->data)[i];}
+          static void j_SetObjectArrayElement(void*e,void*arr,int i,void*v){JArrM*a=arrm_get(arr);(void)e;if(a&&i>=0&&i<a->len)((void**)a->data)[i]=v;}
+          static int j_ExceptionCheck(void*e){(void)e;return 0;}
+          /* DirectByteBuffer: Unity pakai ini buat audio/graphics; sediakan blok memori asli. */
+          typedef struct{void*addr;long cap;}DBB;static DBB g_dbb[64];static int g_dbb_n;
+          static void* j_NewDirectByteBuffer(void*e,void*addr,long cap){DBB*d;(void)e;if(g_dbb_n>=64)return NULL;d=&g_dbb[g_dbb_n++];if(cap>0&&addr){d->addr=malloc((size_t)cap);if(d->addr)memcpy(d->addr,addr,(size_t)cap);}else d->addr=NULL;d->cap=cap;return(void*)(uintptr_t)(0x73000000u+(uint32_t)(g_dbb_n-1)*4u);}
+          static DBB*dbb_get(void*h){uintptr_t v=(uintptr_t)h;if(v<0x73000000u||v>=0x73000000u+64u*4u)return NULL;return &g_dbb[(v-0x73000000u)/4u];}
+          static void* j_GetDirectBufferAddress(void*e,void*b){DBB*d=dbb_get(b);(void)e;return d?d->addr:NULL;}
+          static long j_GetDirectBufferCapacity(void*e,void*b){DBB*d=dbb_get(b);(void)e;return d?d->cap:0;}static void j_FatalError(void*e,const char*m){(void)e;L("JNI FatalError: %s\n",m?m:"");_exit(6);}static int j_RegisterNatives(void*e,void*c,const NativeMethod*m,int n){int i;(void)e;L("[JNI] RegisterNatives(%s,%d)\n",h2s(c),n);for(i=0;i<n&&g_nnat<1400;i++){Native*x=&g_natives[g_nnat++];snprintf(x->cls,sizeof x->cls,"%s",h2s(c));snprintf(x->name,sizeof x->name,"%s",m[i].name);snprintf(x->sig,sizeof x->sig,"%s",m[i].sig);x->fn=m[i].fn;x->mod=mod_of((uintptr_t)m[i].fn);}return 0;}
           static int j_GetJavaVM(void*e,void**v){(void)e;*v=(void*)&g_vmobj;return 0;}static int vm_Destroy(void*v){(void)v;return 0;}static int vm_Attach(void*v,void**e,void*a){(void)v;(void)a;*e=(void*)&g_envobj;return 0;}static int vm_GetEnv(void*v,void**e,int ver){(void)v;(void)ver;*e=(void*)&g_envobj;return 0;}
           #define SETFAM(b,N) do{g_jni_table[b]=(void*)j_Call##N##Method;g_jni_table[b+1]=(void*)j_Call##N##MethodV;g_jni_table[b+2]=(void*)j_Call##N##MethodA;g_jni_table[b+80]=(void*)j_CallStatic##N##Method;g_jni_table[b+81]=(void*)j_CallStatic##N##MethodV;g_jni_table[b+82]=(void*)j_CallStatic##N##MethodA;}while(0)
-          static void init_jni(void){int i;for(i=0;i<256;i++)g_jni_table[i]=jstubs[i];g_jni_table[4]=j_GetVersion;g_jni_table[6]=j_FindClass;g_jni_table[20]=j_ident;g_jni_table[21]=j_ident;g_jni_table[22]=j_void2;g_jni_table[23]=j_void2;g_jni_table[25]=j_ident;g_jni_table[27]=j_AllocObject;g_jni_table[28]=j_NewObject;g_jni_table[29]=j_NewObjectV;g_jni_table[30]=j_NewObjectA;g_jni_table[31]=j_GetObjectClass;g_jni_table[33]=j_GetMethodID;SETFAM(34,Object);SETFAM(37,Boolean);SETFAM(49,Int);SETFAM(52,Long);SETFAM(55,Float);SETFAM(58,Double);SETFAM(61,Void);g_jni_table[94]=j_GetFieldID;g_jni_table[113]=j_GetStaticMethodID;g_jni_table[144]=j_GetFieldID;g_jni_table[167]=j_NewStringUTF;g_jni_table[168]=j_GetStringUTFLength;g_jni_table[169]=j_GetStringUTFChars;g_jni_table[170]=j_ReleaseStringUTFChars;g_jni_table[215]=j_RegisterNatives;g_jni_table[219]=j_GetJavaVM;g_jni_table[228]=j_ExceptionCheck;g_jni_table[18]=j_FatalError;g_vm_table[3]=vm_Destroy;g_vm_table[4]=vm_Attach;g_vm_table[6]=vm_GetEnv;g_vm_table[7]=vm_Attach;}
 
           /* ======================= bionic -> glibc shim ======================= */
           static uint32_t b_stack_chk_guard=0x00a4c3e1u;static char bionic_sF[252];static pthread_mutex_t g_initlock=PTHREAD_MUTEX_INITIALIZER;
@@ -773,7 +828,7 @@ jobs:
           static size_t b_strcoll_l(const char*a,const char*b,void*l){(void)l;return(size_t)strcoll(a,b);}static void*dummy_locale(int a,const char*b,void*c){(void)a;(void)b;(void)c;return(void*)1;}static void*uselocale_dummy(void*p){(void)p;return(void*)1;}static void locale_free(void*p){(void)p;}
 
           /* ======================= Android NDK stubs ======================= */
-          typedef struct{int w,h,fmt,refs;}NWin;static NWin g_nwin={640,480,1,1};static int g_looper,g_sensmgr,g_sensq;
+          static int g_looper,g_sensmgr,g_sensq;
           static void*b_window_from(void*e,void*s){(void)e;(void)s;return &g_nwin;}static int b_winw(void*w){return w?((NWin*)w)->w:640;}static int b_winh(void*w){return w?((NWin*)w)->h:480;}static int b_wingeom(void*w,int a,int b,int c){if(!w)return -1;if(a>0)((NWin*)w)->w=a;if(b>0)((NWin*)w)->h=b;((NWin*)w)->fmt=c;return 0;}static void b_winref(void*w){(void)w;}
           static void*b_looper(int o){(void)o;return &g_looper;}static void*b_looper_thread(void){return &g_looper;}static int b_poll(int t,int*f,int*e,void**d){if(f)*f=-1;if(e)*e=0;if(d)*d=NULL;if(t>0)usleep((useconds_t)(t>20?20:t)*1000);return -3;}static void b_noop(void*p){(void)p;}static int b_addfd(void*l,int f,int i,int e,void*c,void*d){(void)l;(void)f;(void)i;(void)e;(void)c;(void)d;return 1;}static int b_removefd(void*l,int f){(void)l;(void)f;return 0;}
           static void*b_sm(void){return &g_sensmgr;}static int b_sensorlist(void*m,const void***l){(void)m;if(l)*l=NULL;return 0;}static void*b_sensor(void*m,int t){(void)m;(void)t;return NULL;}static void*b_sensorq(void*m,void*l,int i,void*c,void*d){(void)m;(void)l;(void)i;(void)c;(void)d;return &g_sensq;}static int b_zero(void){return 0;}static int b_minus(void){return -1;}static float AAPCS b_sres(void*s){(void)s;return 0;}static const char*b_sstr(void*s){(void)s;return "";}
@@ -836,6 +891,21 @@ jobs:
           AAPCS static void w_glTexParameterf(unsigned a,unsigned b,float c){typedef void(*F)(unsigned,unsigned,float);static F f;if(!f)f=(F)dlsym(h_gles,"glTexParameterf");if(f)f(a,b,c);}
           AAPCS static void w_glPolygonOffset(float a,float b){typedef void(*F)(float,float);static F f;if(!f)f=(F)dlsym(h_gles,"glPolygonOffset");if(f)f(a,b);}
           AAPCS static void w_glVertexAttrib4f(unsigned a,float b,float c,float d,float e){typedef void(*F)(unsigned,float,float,float,float);static F f;if(!f)f=(F)dlsym(h_gles,"glVertexAttrib4f");if(f)f(a,b,c,d,e);}
+          /* GL float wrappers tambahan; signatures exact supaya PCS(aapcs) valid. */
+          #define GLWRAP0(name, args, typ, callargs) AAPCS static void w_##name args {typedef void(*F)typ;static F f;if(!f)f=(F)dlsym(h_gles,#name);if(f)f callargs;}
+          GLWRAP0(glDepthRangef,(float a,float b),(float,float),(a,b))
+          GLWRAP0(glBlendColor,(float a,float b,float c,float d),(float,float,float,float),(a,b,c,d))
+          GLWRAP0(glLineWidth,(float a),(float),(a))
+          GLWRAP0(glSampleCoverage,(float a,unsigned b),(float,unsigned),(a,b))
+          GLWRAP0(glUniform1f,(unsigned a,float b),(unsigned,float),(a,b))
+          GLWRAP0(glUniform2f,(unsigned a,float b,float c),(unsigned,float,float),(a,b,c))
+          GLWRAP0(glUniform3f,(unsigned a,float b,float c,float d),(unsigned,float,float,float),(a,b,c,d))
+          GLWRAP0(glUniform4f,(unsigned a,float b,float c,float d,float e),(unsigned,float,float,float,float),(a,b,c,d,e))
+          GLWRAP0(glVertexAttrib1f,(unsigned a,float b),(unsigned,float),(a,b))
+          GLWRAP0(glVertexAttrib2f,(unsigned a,float b,float c),(unsigned,float,float),(a,b,c))
+          GLWRAP0(glVertexAttrib3f,(unsigned a,float b,float c,float d),(unsigned,float,float,float),(a,b,c,d))
+          GLWRAP0(glSamplerParameterf,(unsigned a,unsigned b,float c),(unsigned,unsigned,float),(a,b,c))
+          #undef GLWRAP0
 
           /* ======================= SDL / EGL hibrida ======================= */
           static void *sdl_h,*sdl_win,*sdl_ctx;
@@ -868,6 +938,12 @@ jobs:
            if(!strcmp(n,"glClearColor"))return w_glClearColor; if(!strcmp(n,"glClearDepthf"))return w_glClearDepthf;
            if(!strcmp(n,"glTexParameterf"))return w_glTexParameterf; if(!strcmp(n,"glPolygonOffset"))return w_glPolygonOffset;
            if(!strcmp(n,"glVertexAttrib4f"))return w_glVertexAttrib4f;
+           if(!strcmp(n,"glDepthRangef"))return w_glDepthRangef; if(!strcmp(n,"glBlendColor"))return w_glBlendColor;
+           if(!strcmp(n,"glLineWidth"))return w_glLineWidth; if(!strcmp(n,"glSampleCoverage"))return w_glSampleCoverage;
+           if(!strcmp(n,"glUniform1f"))return w_glUniform1f; if(!strcmp(n,"glUniform2f"))return w_glUniform2f;
+           if(!strcmp(n,"glUniform3f"))return w_glUniform3f; if(!strcmp(n,"glUniform4f"))return w_glUniform4f;
+           if(!strcmp(n,"glVertexAttrib1f"))return w_glVertexAttrib1f; if(!strcmp(n,"glVertexAttrib2f"))return w_glVertexAttrib2f;
+           if(!strcmp(n,"glVertexAttrib3f"))return w_glVertexAttrib3f; if(!strcmp(n,"glSamplerParameterf"))return w_glSamplerParameterf;
           #define FP(nm) if(!strcmp(n,#nm))return w_##nm
           FP(sinf);FP(cosf);FP(tanf);FP(acosf);FP(asinf);FP(atanf);FP(sqrtf);FP(expf);FP(logf);FP(log2f);FP(log10f);FP(floorf);FP(ceilf);FP(fabsf);FP(roundf);FP(truncf);FP(rintf);FP(powf);FP(atan2f);FP(fmodf);FP(hypotf);FP(fmaxf);FP(fminf);FP(sincosf);FP(sin);FP(cos);FP(tan);FP(acos);FP(asin);FP(atan);FP(sqrt);FP(exp);FP(log);FP(log2);FP(log10);FP(floor);FP(ceil);FP(fabs);FP(round);FP(trunc);FP(rint);FP(pow);FP(atan2);FP(fmod);FP(hypot);FP(fmax);FP(fmin);FP(sincos);
           #undef FP
@@ -948,6 +1024,7 @@ jobs:
            {"sinf",(void*)w_sinf},{"cosf",(void*)w_cosf},{"tanf",(void*)w_tanf},{"acosf",(void*)w_acosf},{"asinf",(void*)w_asinf},{"atanf",(void*)w_atanf},{"sqrtf",(void*)w_sqrtf},{"expf",(void*)w_expf},{"exp2f",(void*)w_exp2f},{"logf",(void*)w_logf},{"log2f",(void*)w_log2f},{"log10f",(void*)w_log10f},{"floorf",(void*)w_floorf},{"ceilf",(void*)w_ceilf},{"fabsf",(void*)w_fabsf},{"roundf",(void*)w_roundf},{"truncf",(void*)w_truncf},{"rintf",(void*)w_rintf},{"cbrtf",(void*)w_cbrtf},{"tanhf",(void*)w_tanhf},{"powf",(void*)w_powf},{"atan2f",(void*)w_atan2f},{"fmodf",(void*)w_fmodf},{"hypotf",(void*)w_hypotf},{"fmaxf",(void*)w_fmaxf},{"fminf",(void*)w_fminf},{"sincosf",(void*)w_sincosf},{"ldexpf",(void*)w_ldexpf},{"scalbnf",(void*)w_scalbnf},{"modff",(void*)w_modff},{"frexpf",(void*)w_frexpf},{"lrintf",(void*)w_lrintf},{"lroundf",(void*)w_lroundf},{"strtof",(void*)w_strtof},{"wcstof",(void*)w_wcstof},
            {"sin",(void*)w_sin},{"cos",(void*)w_cos},{"tan",(void*)w_tan},{"acos",(void*)w_acos},{"asin",(void*)w_asin},{"atan",(void*)w_atan},{"sqrt",(void*)w_sqrt},{"exp",(void*)w_exp},{"exp2",(void*)w_exp2},{"log",(void*)w_log},{"log2",(void*)w_log2},{"log10",(void*)w_log10},{"floor",(void*)w_floor},{"ceil",(void*)w_ceil},{"fabs",(void*)w_fabs},{"round",(void*)w_round},{"trunc",(void*)w_trunc},{"rint",(void*)w_rint},{"cbrt",(void*)w_cbrt},{"tanh",(void*)w_tanh},{"sinh",(void*)w_sinh},{"logb",(void*)w_logb},{"pow",(void*)w_pow},{"atan2",(void*)w_atan2},{"fmod",(void*)w_fmod},{"hypot",(void*)w_hypot},{"fmax",(void*)w_fmax},{"fmin",(void*)w_fmin},{"sincos",(void*)w_sincos},{"ldexp",(void*)w_ldexp},{"scalbn",(void*)w_scalbn},{"modf",(void*)w_modf},{"frexp",(void*)w_frexp},{"lrint",(void*)w_lrint},{"lround",(void*)w_lround},{"difftime",(void*)w_difftime},{"strtod",(void*)w_strtod},{"strtold",(void*)w_strtold},{"wcstod",(void*)w_wcstod},{"wcstold",(void*)w_wcstold},
            {"glClearColor",(void*)w_glClearColor},{"glClearDepthf",(void*)w_glClearDepthf},{"glTexParameterf",(void*)w_glTexParameterf},{"glPolygonOffset",(void*)w_glPolygonOffset},{"glVertexAttrib4f",(void*)w_glVertexAttrib4f},
+          {"glDepthRangef",(void*)w_glDepthRangef},{"glBlendColor",(void*)w_glBlendColor},{"glLineWidth",(void*)w_glLineWidth},{"glSampleCoverage",(void*)w_glSampleCoverage},{"glUniform1f",(void*)w_glUniform1f},{"glUniform2f",(void*)w_glUniform2f},{"glUniform3f",(void*)w_glUniform3f},{"glUniform4f",(void*)w_glUniform4f},{"glVertexAttrib1f",(void*)w_glVertexAttrib1f},{"glVertexAttrib2f",(void*)w_glVertexAttrib2f},{"glVertexAttrib3f",(void*)w_glVertexAttrib3f},{"glSamplerParameterf",(void*)w_glSamplerParameterf},
            {NULL,NULL}};
 
           /* ======================= ELF loader ======================= */
@@ -956,8 +1033,29 @@ jobs:
           static Mod*mod_of(uintptr_t a){int i;for(i=0;i<nmods;i++)if(a>=(uintptr_t)mods[i].base&&a<(uintptr_t)mods[i].base+mods[i].span)return &mods[i];return NULL;}static Mod*mod_find_name(const char*n){int i;for(i=0;i<nmods;i++)if(!strcmp(mods[i].name,n))return &mods[i];return NULL;}static void*mod_find(const Mod*m,const char*n){int i;for(i=1;i<m->nsym;i++){Elf32_Sym*s=&m->sym[i];if(s->st_shndx!=SHN_UNDEF&&s->st_name&&!strcmp(m->str+s->st_name,n))return(void*)(m->bias+s->st_value);}return NULL;}
           static int b_dl_iterate_phdr(int(*cb)(struct dl_phdr_info*,size_t,void*),void*d){int i,r;for(i=0;i<nmods;i++){struct dl_phdr_info x;memset(&x,0,sizeof x);x.dlpi_addr=mods[i].bias;x.dlpi_name=mods[i].name;x.dlpi_phdr=mods[i].ph;x.dlpi_phnum=mods[i].nph;r=cb(&x,sizeof x,d);if(r)return r;}return dl_iterate_phdr(cb,d);}static void*b_dl_unwind_find_exidx(uintptr_t pc,int*n){Mod*m=mod_of(pc);if(!m){if(n)*n=0;return NULL;}if(n)*n=(int)(m->exidx_sz/8);return(void*)(m->bias+m->exidx);}static void*b_dladdr(void*a,void*i){Dl_info*d=i;memset(d,0,sizeof*d);return(void*)(uintptr_t)dladdr(a,d);}
           static Mod*handle_to_mod(void*h){int i;for(i=0;i<nmods;i++)if(h==(void*)&mods[i])return &mods[i];return NULL;}
-          static void*b_dlopen(const char*p,int f){const char*b=strrchr(p?p:"",'/');Mod*m=mod_find_name(b?b+1:p);if(m){L("[shim] dlopen(\"%s\") -> modul game yang sudah dimuat (%s)\n",p,m->name);return(void*)m;}return dlopen(p,f?f:RTLD_LAZY);}
-          static void*b_dlsym(void*h,const char*n){Mod*m=handle_to_mod(h);if(m)return mod_find(m,n);return dlsym(h?h:RTLD_DEFAULT,n);}
+          /* Handle "utama" untuk dlopen(NULL) -> libmain.so yang sudah dimuat. */
+          static void*g_main_h;
+          static void*b_dlopen(const char*p,int f){
+           const char*b;Mod*m;
+           if(!p){if(g_main_h)return g_main_h;L("[shim] dlopen(NULL) -> handle utama\n");return g_main_h=(void*)&mods[0];}
+           b=strrchr(p,'/');
+           if(!strncmp(p,"libGLES",7)&&h_gles)return h_gles;
+           if(!strncmp(p,"libEGL",6)&&h_egl)return h_egl;
+           m=mod_find_name(b?b+1:p);
+           if(m){L("[shim] dlopen(\"%s\") -> modul game yang sudah dimuat (%s)\n",p,m->name);return(void*)m;}
+           L("[shim] dlopen(\"%s\") -> host\n",p);
+           return dlopen(p,f?f:RTLD_LAZY);}
+          static void*b_dlsym(void*h,const char*n){Mod*m;void*p;
+           if(!h||h==RTLD_DEFAULT||h==(void*)-1||h==(void*)-2||h==g_main_h){
+            /* pencarian global: modul game dulu, baru shim, baru host */
+            int i;for(i=0;i<nmods;i++)if((p=mod_find(&mods[i],n)))return p;
+            for(i=0;shim[i].n;i++)if(!strcmp(shim[i].n,n))return shim[i].p;
+            if(h_gles&&(p=dlsym(h_gles,n)))return p;
+            if(h_egl&&(p=dlsym(h_egl,n)))return p;
+            return dlsym(RTLD_DEFAULT,n);}
+           if(h==h_gles){int i;for(i=0;shim[i].n;i++)if(!strcmp(shim[i].n,n))return shim[i].p;return dlsym(h_gles,n);}
+           m=handle_to_mod(h);if(m)return mod_find(m,n);
+           return dlsym(h,n);}
           static int b_dlclose(void*h){return handle_to_mod(h)?0:dlclose(h);}static char*b_dlerror(void){return dlerror();}
           static uint32_t resolve(Mod*self,const Elf32_Sym*s){const char*n=self->str+s->st_name;int i;void*p;if(s->st_shndx!=SHN_UNDEF){cnt_self++;return U32(self->bias+s->st_value);}for(i=0;i<nmods;i++)if(&mods[i]!=self&&(p=mod_find(&mods[i],n))){cnt_mod++;return U32(p);}for(i=0;shim[i].n;i++)if(!strcmp(shim[i].n,n)){cnt_shim++;if(nshim_hit<512)shim_hit[nshim_hit++]=shim[i].n;return U32(shim[i].p);}if((p=dlsym(RTLD_DEFAULT,n))){cnt_libc++;return U32(p);}if(h_z&&(p=dlsym(h_z,n))){cnt_libc++;return U32(p);}if(h_egl&&(p=dlsym(h_egl,n))){cnt_gl++;return U32(p);}if(h_gles&&(p=dlsym(h_gles,n))){cnt_gl++;return U32(p);}if(ELF32_ST_BIND(s->st_info)==STB_WEAK){cnt_weak0++;return 0;}for(i=0;i<nunres;i++)if(!strcmp(unres_name[i],n))return U32(tstubs[i]);cnt_unres++;if(nunres<MAXUNRES){unres_name[nunres]=n;return U32(tstubs[nunres++]);}return U32(tstubs[MAXUNRES-1]);}
           static int relocate(Mod*m){int pass,bad=0;for(pass=0;pass<2;pass++){Elf32_Rel*r=pass?m->jrel:m->rel;uint32_t n=pass?m->njrel:m->nrel,k;for(k=0;k<n;k++){uint32_t t=ELF32_R_TYPE(r[k].r_info),s=ELF32_R_SYM(r[k].r_info);uint32_t*w=(void*)(m->bias+r[k].r_offset);if(t==R_ARM_NONE)continue;if(t==R_ARM_RELATIVE)*w+=U32(m->bias);else if(t==R_ARM_ABS32){if(s)*w+=resolve(m,&m->sym[s]);}else if(t==R_ARM_GLOB_DAT||t==R_ARM_JUMP_SLOT)*w=resolve(m,&m->sym[s]);else{L("reloc unsupported %u\n",t);bad++;}}}return bad;}
@@ -965,7 +1063,17 @@ jobs:
           static void run_init(Mod*m){uint32_t i;if(m->init)((void(*)(void))(m->bias+m->init))();for(i=0;i<m->niarr;i++)if(m->iarr[i]&&m->iarr[i]!=0xffffffffu)((void(*)(void))(uintptr_t)m->iarr[i])();}
 
           static int j_Register(void*e,void*c,const NativeMethod*m,int n){int i;(void)e;for(i=0;i<n&&g_nnat<1400;i++){Native*x=&g_natives[g_nnat++];snprintf(x->cls,sizeof x->cls,"%s",h2s(c));snprintf(x->name,sizeof x->name,"%s",m[i].name);snprintf(x->sig,sizeof x->sig,"%s",m[i].sig);x->fn=m[i].fn;x->mod=mod_of((uintptr_t)m[i].fn);}L("[JNI] RegisterNatives(%s, %d)\n",h2s(c),n);return 0;}
-          static void init_jni_table(void){int i;for(i=0;i<256;i++)g_jni_table[i]=jstubs[i];g_jni_table[4]=j_GetVersion;g_jni_table[6]=j_FindClass;g_jni_table[27]=j_AllocObject;g_jni_table[28]=j_NewObject;g_jni_table[29]=j_NewObjectV;g_jni_table[30]=j_NewObjectA;g_jni_table[31]=j_GetObjectClass;g_jni_table[33]=j_GetMethodID;SETFAM(34,Object);SETFAM(37,Boolean);SETFAM(49,Int);SETFAM(52,Long);SETFAM(55,Float);SETFAM(58,Double);SETFAM(61,Void);g_jni_table[94]=j_GetFieldID;g_jni_table[113]=j_GetStaticMethodID;g_jni_table[144]=j_GetFieldID;g_jni_table[167]=j_NewStringUTF;g_jni_table[168]=j_GetStringUTFLength;g_jni_table[169]=j_GetStringUTFChars;g_jni_table[170]=j_ReleaseStringUTFChars;g_jni_table[215]=j_Register;g_jni_table[219]=j_GetJavaVM;g_jni_table[228]=j_ExceptionCheck;g_jni_table[18]=j_FatalError;g_vm_table[3]=vm_Destroy;g_vm_table[4]=vm_Attach;g_vm_table[6]=vm_GetEnv;g_vm_table[7]=vm_Attach;}
+          static void init_jni_table(void){int i;for(i=0;i<256;i++)g_jni_table[i]=jstubs[i];g_jni_table[4]=j_GetVersion;g_jni_table[6]=j_FindClass;g_jni_table[27]=j_AllocObject;g_jni_table[28]=j_NewObject;g_jni_table[29]=j_NewObjectV;g_jni_table[30]=j_NewObjectA;g_jni_table[31]=j_GetObjectClass;g_jni_table[33]=j_GetMethodID;SETFAM(34,Object);SETFAM(37,Boolean);SETFAM(49,Int);SETFAM(52,Long);SETFAM(55,Float);SETFAM(58,Double);SETFAM(61,Void);g_jni_table[94]=j_GetFieldID;g_jni_table[113]=j_GetStaticMethodID;g_jni_table[144]=j_GetFieldID;g_jni_table[167]=j_NewStringUTF;g_jni_table[168]=j_GetStringUTFLength;g_jni_table[169]=j_GetStringUTFChars;g_jni_table[170]=j_ReleaseStringUTFChars;g_jni_table[215]=j_Register;g_jni_table[219]=j_GetJavaVM;g_jni_table[228]=j_ExceptionCheck;g_jni_table[18]=j_FatalError;
+          /* JNI refs & exception, index JNI asli. Stub bawaan return NULL -> objek Java jadi NULL -> crash native. */
+          g_jni_table[13]=j_zero1;g_jni_table[15]=j_exc;g_jni_table[16]=j_noop2;g_jni_table[17]=j_noop2;g_jni_table[19]=j_pushframe;g_jni_table[20]=j_popframe;g_jni_table[21]=j_same;g_jni_table[22]=j_noop2;g_jni_table[23]=j_noop2;g_jni_table[24]=j_same_q;g_jni_table[25]=j_same;g_jni_table[26]=j_zero1;
+          /* string UTF-16 + field + array */
+          g_jni_table[163]=j_NewString;g_jni_table[164]=j_GetStringLength;g_jni_table[165]=j_GetStringChars;g_jni_table[166]=j_ReleaseStringChars;
+          g_jni_table[95]=j_GetObjectField;g_jni_table[96]=j_GetBooleanField;g_jni_table[100]=j_GetIntField;g_jni_table[101]=j_GetLongField;g_jni_table[102]=j_GetFloatField;g_jni_table[103]=j_GetDoubleField;
+          /* static field (Build.*) + IsInstanceOf + monitor/weak-globalref */
+          g_jni_table[145]=j_GetStaticObjectField;g_jni_table[150]=j_GetStaticIntField;g_jni_table[32]=j_inst;
+          g_jni_table[217]=j_mon_zero;g_jni_table[218]=j_mon_zero;g_jni_table[226]=j_weak_ident;g_jni_table[227]=j_mon_noop;g_jni_table[229]=j_NewDirectByteBuffer;g_jni_table[230]=j_GetDirectBufferAddress;g_jni_table[231]=j_GetDirectBufferCapacity;g_jni_table[232]=j_mon_zero;
+          g_jni_table[171]=j_GetArrayLength;g_jni_table[172]=j_NewObjectArray;g_jni_table[173]=j_GetObjectArrayElement;g_jni_table[174]=j_SetObjectArrayElement;
+          g_vm_table[3]=vm_Destroy;g_vm_table[4]=vm_Attach;g_vm_table[6]=vm_GetEnv;g_vm_table[7]=vm_Attach;}
 
           static int gfx_ready;
           static void init_host_libs(void){
@@ -981,19 +1089,39 @@ jobs:
           /* ======================= Unity thread + render loop ======================= */
           typedef void(*nfn)(void*,void*,...);
           static void*unity_thread(void*arg){Native*ni,*nr,*nc,*nf,*nrender;void*env=&g_envobj;void*self=mk_obj("com/unity3d/player/UnityPlayer");void*ctx=mk_obj("android/app/Activity");void*surf=mk_obj("android/view/Surface");unsigned long frames=0;struct timespec a,b;(void)arg;g_unity_self=self;pthread_setname_np(pthread_self(),"UnityMain");ni=find_native("UnityPlayer","initJni");nr=find_native("UnityPlayerForActivityOrService","nativeRecreateGfxState");nc=find_native("UnityPlayerForActivityOrService","nativeSendSurfaceChangedEvent");nf=find_native("UnityPlayerForActivityOrService","nativeResume");nrender=find_native("UnityPlayerForActivityOrService","nativeRender");if(!ni||!nr||!nf||!nrender){L("[m2] Unity native entrypoints missing init=%p recreate=%p resume=%p render=%p\n",ni,nr,nf,nrender);g_m2_done=1;return NULL;}
-           L("[m2] UnityPlayer.initJni(context, 0)\n");((nfn)ni->fn)(env,self,ctx,0);L("[m2] nativeRecreateGfxState(0,surface)\n");((nfn)nr->fn)(env,self,0,surf);if(nc)((nfn)nc->fn)(env,self);L("[m2] nativeResume()\n");((nfn)nf->fn)(env,self);{Native*focus=find_native("UnityPlayerForActivityOrService","nativeFocusChanged");if(focus)((nfn)focus->fn)(env,self,1);}g_m2_ready=1;clock_gettime(CLOCK_MONOTONIC,&a);while(!g_m2_done&&frames<(unsigned long)g_frames_target){int r=((uint8_t(*)(void*,void*))nrender->fn)(env,self)&0xff;frames++;g_m2_frames=frames;if(frames<4||frames%120==0)L("[m2] nativeRender %lu -> %d swap=%lu\n",frames,r,g_gfx.swaps);if(!r){L("[m2] nativeRender false\n");break;}poll_events(1.f/(float)g_fps);if(g_fps==30)usleep(10000);}clock_gettime(CLOCK_MONOTONIC,&b);L("[m2] render ended frames=%lu swaps=%lu elapsed=%ld.%03ld\n",frames,g_gfx.swaps,(long)(b.tv_sec-a.tv_sec),(long)((b.tv_nsec-a.tv_nsec)/1000000));g_m2_done=1;return NULL;}
-          static void m2_run(void){pthread_t t;if(gfx_setup()!=0){L("[m2] gfx_setup gagal; berhenti sebelum game start\n");return;}if(pthread_create(&t,NULL,unity_thread,NULL)){L("[m2] pthread_create UnityMain gagal\n");return;}in_open_joysticks();while(!g_m2_done)poll_events(1.f/(float)g_fps),usleep(10000);pthread_join(t,NULL);}
+           L("[m2] UnityPlayer.initJni(context, 0)\n");((nfn)ni->fn)(env,self,ctx,0);L("[m2] nativeRecreateGfxState(0,surface)\n");((nfn)nr->fn)(env,self,0,surf);if(nc)((nfn)nc->fn)(env,self);L("[m2] nativeResume()\n");((nfn)nf->fn)(env,self);{Native*focus=find_native("UnityPlayerForActivityOrService","nativeFocusChanged");if(focus)((nfn)focus->fn)(env,self,1);}g_m2_ready=1;clock_gettime(CLOCK_MONOTONIC,&a);while(!g_m2_done&&frames<(unsigned long)g_frames_target){int r=((uint8_t(*)(void*,void*))nrender->fn)(env,self)&0xff;frames++;g_m2_frames=frames;if(frames==1){alarm(0);L("[watchdog] nativeRender mulai -> timer dibatalkan\n");}if(frames<4||frames%120==0)L("[m2] nativeRender %lu -> %d swap=%lu\n",frames,r,g_gfx.swaps);if(!r){L("[m2] nativeRender false\n");break;}poll_events(1.f/(float)g_fps);if(g_fps==30)usleep(10000);}clock_gettime(CLOCK_MONOTONIC,&b);L("[m2] render ended frames=%lu swaps=%lu elapsed=%ld.%03ld\n",frames,g_gfx.swaps,(long)(b.tv_sec-a.tv_sec),(long)((b.tv_nsec-a.tv_nsec)/1000000));g_m2_done=1;return NULL;}
+          static void m2_run(void){pthread_t t;if(gfx_setup()!=0){L("[m2] gfx_setup gagal; berhenti sebelum game start\n");return;}if(pthread_create(&t,NULL,unity_thread,NULL)){L("[m2] pthread_create UnityMain gagal\n");return;}in_open_joysticks();
+           /* Detak: kalau nativeRender/eglSwapBuffers tidak maju berarti Unity macet (mis. menunggu callback Choreographer).
+              Setelah --stall detik tanpa progres -> berhenti sendiri supaya tidak hang selamanya. */
+           {int waited=0,stall_s=0;unsigned long last_fr=g_m2_frames,last_sw=g_gfx.swaps;const int stall_max=(g_timeout>0?g_timeout:180)/2;int warmup=0;
+            while(!g_m2_done){poll_events(1.f/(float)g_fps);usleep(10000);waited++;
+             if(waited%100==0){
+              /* Fase warm-up: Unity masih memuat asset, nativeRender belum jalan -> jangan dianggap macet. */
+              if(g_m2_frames==0){if(++warmup>=12){L("[m2] 120 detik tanpa nativeRender sama sekali -> Unity tidak pernah mulai render\n");g_m2_done=1;break;}L("[m2] memuat... %d dtk (nativeRender belum jalan)\n",waited/100);continue;}
+              {int no_prog=(g_m2_frames==last_fr&&g_gfx.swaps==last_sw);last_fr=g_m2_frames;last_sw=g_gfx.swaps;
+               if(no_prog)stall_s++;else stall_s=0;
+               L("[m2] detak %d dtk | nativeRender=%lu | swap=%lu%s\n",waited/100,g_m2_frames,g_gfx.swaps,stall_s>2?" (MACET!)":"");
+               if(stall_s>0&&stall_s%3==0)L("[m2] nativeRender tidak maju selama %d detik -> Unity mungkin menunggu callback Choreographer/Looper\n",stall_s);
+               if(stall_max>0&&stall_s>=stall_max){L("[m2] STALL %d detik -> berhenti (tidak hang selamanya)\n",stall_s);g_m2_done=1;break;}}}}}
+            pthread_join(t,NULL);}
 
-          static void on_sig(int s,siginfo_t*i,void*c){ucontext_t*u=c;uintptr_t pc=0,lr=0;
+          static void on_sig(int s,siginfo_t*i,void*c){ucontext_t*u=c;uintptr_t pc=0,lr=0,sp=0;int k;
           #if defined(__arm__)
-          pc=u->uc_mcontext.arm_pc;lr=u->uc_mcontext.arm_lr;
+          pc=u->uc_mcontext.arm_pc;lr=u->uc_mcontext.arm_lr;sp=u->uc_mcontext.arm_sp;
           #elif defined(__x86_64__)
           pc=(uintptr_t)u->uc_mcontext.gregs[REG_RIP];
           #endif
-          L("\n*** signal %d addr=%p pc=%p lr=%p ***\n",s,i?i->si_addr:NULL,(void*)pc,(void*)lr);{Mod*m=mod_of(pc);if(m)L("  in %s+0x%lx\n",m->name,(unsigned long)(pc-m->bias));}fflush(NULL);_exit(128+s);}
+          L("\n*** signal %d addr=%p pc=%p lr=%p sp=%p ***\n",s,i?i->si_addr:NULL,(void*)pc,(void*)lr,(void*)sp);
+          {Mod*m=mod_of(pc);if(m)L("  in %s+0x%lx\n",m->name,(unsigned long)(pc-m->bias));}
+          #if defined(__arm__)
+          L("  r0=%08lx r1=%08lx r2=%08lx r3=%08lx r4=%08lx r5=%08lx\n",(unsigned long)u->uc_mcontext.arm_r0,(unsigned long)u->uc_mcontext.arm_r1,(unsigned long)u->uc_mcontext.arm_r2,(unsigned long)u->uc_mcontext.arm_r3,(unsigned long)u->uc_mcontext.arm_r4,(unsigned long)u->uc_mcontext.arm_r5);
+          L("  r6=%08lx r7=%08lx r8=%08lx r9=%08lx r10=%08lx fp=%08lx ip=%08lx\n",(unsigned long)u->uc_mcontext.arm_r6,(unsigned long)u->uc_mcontext.arm_r7,(unsigned long)u->uc_mcontext.arm_r8,(unsigned long)u->uc_mcontext.arm_r9,(unsigned long)u->uc_mcontext.arm_r10,(unsigned long)u->uc_mcontext.arm_fp,(unsigned long)u->uc_mcontext.arm_ip);
+          #endif
+          L("  [panggilan JNI terakhir]\n");for(k=0;k<8;k++){unsigned q=(g_jr_i+8+(unsigned)k)&15u;if(g_jr_n[q])L("   %s arg=%p\n",g_jr_n[q],g_jr_p[q]);}
+          fflush(NULL);_exit(128+s);}
           static void alarm_handler(int s){(void)s;L("[watchdog] timeout\n");_exit(4);}
           static int pint(const char*s){int n=0;while(*s>='0'&&*s<='9')n=n*10+*s++-'0';return n;}
-          int main(int argc,char**argv){const char*dir="libs";int i,dry=0;Mod*mm,*un,*il;struct utsname u;struct sigaction sa;char logp[256]="m2_log.txt";for(i=1;i<argc;i++){if(!strcmp(argv[i],"--libdir")&&i+1<argc)dir=argv[++i];else if(!strcmp(argv[i],"--assets")&&i+1<argc)g_assets=argv[++i];else if(!strcmp(argv[i],"--stage")&&i+1<argc)g_stage=pint(argv[++i]);else if(!strcmp(argv[i],"--frames")&&i+1<argc)g_frames_target=pint(argv[++i]);else if(!strcmp(argv[i],"--timeout")&&i+1<argc)g_timeout=pint(argv[++i]);else if(!strcmp(argv[i],"--log")&&i+1<argc)snprintf(logp,sizeof logp,"%s",argv[++i]);else if(!strcmp(argv[i],"--dry"))dry=1;else if(!strcmp(argv[i],"--fps")&&i+1<argc)g_fps=pint(argv[++i]);}g_libdir=dir;g_log=fopen(logp,"w");L("== Let Me Eat M2 stage=%d frames=%d ==\n",g_stage,g_frames_target);if(sizeof(void*)!=4){L("must be armhf\n");return 2;}uname(&u);L("system=%s %s %s glibc=%s\n",u.sysname,u.release,u.machine,gnu_get_libc_version());memset(&sa,0,sizeof sa);sa.sa_sigaction=on_sig;sa.sa_flags=SA_SIGINFO|SA_ONSTACK;sigaction(SIGSEGV,&sa,NULL);sigaction(SIGBUS,&sa,NULL);sigaction(SIGILL,&sa,NULL);signal(SIGALRM,alarm_handler);init_jni_table();dlopen("libm.so.6",RTLD_NOW|RTLD_GLOBAL);dlopen("libgcc_s.so.1",RTLD_NOW|RTLD_GLOBAL);init_host_libs();if(load_mod(dir,"libmain.so",&mm)||load_mod(dir,"libunity.so",&un)||load_mod(dir,"libil2cpp.so",&il))return 1;if(relocate(mm)||relocate(un)||relocate(il))return 1;L("[resolve] unresolved=%d shim=%d glibc=%d weak=%d\n",cnt_unres,cnt_shim,cnt_libc,cnt_weak0);if(nunres)for(i=0;i<nunres;i++)L("UNRES %s\n",unres_name[i]);if(dry||g_stage<1){L("stage0 done\n");return 0;}protect(mm);protect(un);protect(il);run_init(mm);run_init(un);run_init(il);{void*f=mod_find(mm,"JNI_OnLoad");if(f)((int(*)(void*,void*))f)(&g_vmobj,NULL);}if(g_stage>=2){Native*n=find_native("NativeLoader","load");if(n){int r=((uint8_t(*)(void*,void*,void*))n->fn)(&g_envobj,mk_handle("com/unity3d/player/NativeLoader"),mk_handle(dir))&255;L("NativeLoader.load=%d\n",r);}else L("missing NativeLoader.load\n");{void*f=mod_find(un,"JNI_OnLoad");if(f)((int(*)(void*,void*))f)(&g_vmobj,NULL);}}if(g_stage>=3)m2_run();else L("stage2 JNI boot done; stage3 starts SDL/render\n");L("== M2 done ==\n");return 0;}
+          int main(int argc,char**argv){const char*dir="libs";int i,dry=0;Mod*mm,*un,*il;struct utsname u;struct sigaction sa;char logp[256]="m2_log.txt";for(i=1;i<argc;i++){if(!strcmp(argv[i],"--libdir")&&i+1<argc)dir=argv[++i];else if(!strcmp(argv[i],"--assets")&&i+1<argc)g_assets=argv[++i];else if(!strcmp(argv[i],"--stage")&&i+1<argc)g_stage=pint(argv[++i]);else if(!strcmp(argv[i],"--frames")&&i+1<argc)g_frames_target=pint(argv[++i]);else if(!strcmp(argv[i],"--timeout")&&i+1<argc)g_timeout=pint(argv[++i]);else if(!strcmp(argv[i],"--log")&&i+1<argc)snprintf(logp,sizeof logp,"%s",argv[++i]);else if(!strcmp(argv[i],"--dry"))dry=1;else if(!strcmp(argv[i],"--fps")&&i+1<argc)g_fps=pint(argv[++i]);}g_libdir=dir;g_log=fopen(logp,"w");L("== Let Me Eat M2 stage=%d frames=%d ==\n",g_stage,g_frames_target);if(sizeof(void*)!=4){L("must be armhf\n");return 2;}uname(&u);L("system=%s %s %s glibc=%s\n",u.sysname,u.release,u.machine,gnu_get_libc_version());memset(&sa,0,sizeof sa);sa.sa_sigaction=on_sig;sa.sa_flags=SA_SIGINFO|SA_ONSTACK;sigaction(SIGSEGV,&sa,NULL);sigaction(SIGBUS,&sa,NULL);sigaction(SIGILL,&sa,NULL);signal(SIGALRM,alarm_handler);init_jni_table();dlopen("libm.so.6",RTLD_NOW|RTLD_GLOBAL);dlopen("libgcc_s.so.1",RTLD_NOW|RTLD_GLOBAL);init_host_libs();if(load_mod(dir,"libmain.so",&mm)||load_mod(dir,"libunity.so",&un)||load_mod(dir,"libil2cpp.so",&il))return 1;if(relocate(mm)||relocate(un)||relocate(il))return 1;L("[resolve] unresolved=%d shim=%d glibc=%d weak=%d\n",cnt_unres,cnt_shim,cnt_libc,cnt_weak0);if(nunres)for(i=0;i<nunres;i++)L("UNRES %s\n",unres_name[i]);if(dry||g_stage<1){L("stage0 done\n");return 0;}if(g_timeout>0){alarm((unsigned)g_timeout);L("[watchdog] timeout %d detik\n",g_timeout);}protect(mm);protect(un);protect(il);run_init(mm);run_init(un);run_init(il);{void*f=mod_find(mm,"JNI_OnLoad");if(f)((int(*)(void*,void*))f)(&g_vmobj,NULL);}if(g_stage>=2){Native*n=find_native("NativeLoader","load");if(n){int r=((uint8_t(*)(void*,void*,void*))n->fn)(&g_envobj,mk_handle("com/unity3d/player/NativeLoader"),mk_handle(dir))&255;L("NativeLoader.load=%d\n",r);}else L("missing NativeLoader.load\n");{void*f=mod_find(un,"JNI_OnLoad");if(f)((int(*)(void*,void*))f)(&g_vmobj,NULL);}}if(g_stage>=3)m2_run();else L("stage2 JNI boot done; stage3 starts SDL/render\n");L("== M2 done ==\n");return 0;}
           EOF_C
       - name: Kompilasi (armhf)
         run: |
@@ -1057,6 +1185,16 @@ jobs:
           - Input: stick/D-pad/kursor virtual -> MotionEvent -> nativeInjectEvent.
           - Exit: Select+Start (pad) atau ESC (keyboard).
           
+          CATATAN PENTING (M2 masih eksperimental):
+          - Layar hitam selama boot itu NORMAL di M2. Unity butuh waktu memuat asset dulu,
+            lalu nativeRender mulai jalan. Tunggu sampai baris "detak ... nativeRender=NN"
+            muncul di log.
+          - Ada watchdog otomatis: kalau nativeRender tidak jalan selama 120 detik, atau
+            macet tanpa progres setengah dari --timeout, proses berhenti sendiri. Jadi tidak
+            perlu khawatir hang selamanya.
+          - Kalau sudah keluar baris "MACET!" atau "STALL", artinya Unity menunggu callback
+            Choreographer/Looper. Kirim log-nya ke Claude.
+
           CARA PASANG:
           1. Salin isi folder ini ke folder game di Anbernic, mis. /mnt/sdcard/ports/LetMeEat/
              (sebelah folder lib/ dan assets/ hasil ekstrak APK).
