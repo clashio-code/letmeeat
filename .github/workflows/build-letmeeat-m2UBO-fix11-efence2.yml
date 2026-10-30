@@ -1356,6 +1356,33 @@ jobs:
           static const char*const lg_names[]={"strlen","strnlen","strcmp","strncmp","strcasecmp","strncasecmp","strcpy","strncpy","strcat","strncat","strchr","strrchr","strstr","strpbrk","strspn","strcspn","strdup","strndup","memcpy","memmove","memset","memcmp","memchr","memrchr","bcmp","strtok_r","strcoll","snprintf","sprintf","vsnprintf","vsprintf","vfprintf","vfscanf","sscanf","fopen","fgets","fread","fwrite","fputs","getenv","realpath","opendir","readdir","stat","open","access","readlink","atoi","strtol","strtoul","strtod","qsort","bsearch","basename","dirname","wcslen","wcscmp","mbstowcs","wcstombs","fputc","putc","getc","fgetc","ungetc","fclose","fflush","fseek","ftell","setvbuf","scandir","glob","fnmatch","tolower","toupper","pthread_setname_np","prctl","syscall","getpid","gettid",NULL};
           static const char*libc_guess(uintptr_t a,uintptr_t*start){int i;const char*best=NULL;uintptr_t bv=0;for(i=0;lg_names[i];i++){void*p=dlsym(RTLD_DEFAULT,lg_names[i]);uintptr_t v=(uintptr_t)p&~1u;if(p&&v<=a&&a-v<0x600&&v>=bv){bv=v;best=lg_names[i];}}if(start)*start=bv;return best;}
           static void symof(uintptr_t a,char*b,size_t n){Mod*m=mod_of(a);Dl_info d;if(m){uint32_t best=0;const char*bn=NULL;int bi;for(bi=1;bi<m->nsym;bi++){Elf32_Sym*y=&m->sym[bi];uint32_t v;if(y->st_shndx==SHN_UNDEF||!y->st_name||!y->st_size)continue;v=(uint32_t)(m->bias+y->st_value);if(v<=a&&a-v<y->st_size&&v>best){best=v;bn=m->str+y->st_name;}}if(bn)snprintf(b,n,"%s+0x%lx [%s+0x%lx]",m->name,(unsigned long)(a-m->bias),bn,(unsigned long)(a-best));else snprintf(b,n,"%s+0x%lx",m->name,(unsigned long)(a-m->bias));return;}memset(&d,0,sizeof d);if(a>0x10000&&dladdr((void*)a,&d)&&d.dli_fname){const char*f=strrchr(d.dli_fname,'/');f=f?f+1:d.dli_fname;if(ls_sym&&d.dli_fbase==ls_base){uintptr_t st=0;const char*nm=ls_name(a-(uintptr_t)d.dli_fbase,&st);if(nm){snprintf(b,n,"LOADER:%s+0x%lx",nm,(unsigned long)(a-(uintptr_t)d.dli_fbase-st));return;}}if(!d.dli_sname&&strstr(d.dli_fname,"libc.so")){uintptr_t st=0;const char*g=libc_guess(a,&st);if(g){snprintf(b,n,"%s(~%s?)+0x%lx",f,g,(unsigned long)(a-st));return;}}snprintf(b,n,"%s(%s)+0x%lx",f,d.dli_sname?d.dli_sname:"?",(unsigned long)(a-(uintptr_t)(d.dli_saddr?d.dli_saddr:d.dli_fbase)));return;}snprintf(b,n,"-");}
+          static int bt_ok(uintptr_t a,int fd){return write(fd,(void*)a,4)==4;}
+          static int bt_is_call(uintptr_t v,int fd){
+           if(v<0x10000u)return 0;
+           if(v&1u){uintptr_t p=v&~(uintptr_t)1;uint16_t a,b;
+            if(!bt_ok(p-4,fd))return 0;
+            a=*(uint16_t*)(p-4);b=*(uint16_t*)(p-2);
+            if((a&0xF800u)==0xF000u&&(b&0xC000u)==0xC000u)return 1;
+            if((b&0xFF87u)==0x4780u)return 1;
+            return 0;}
+           else{uint32_t w;
+            if(v&3u)return 0;
+            if(!bt_ok(v-4,fd))return 0;
+            w=*(uint32_t*)(v-4);
+            if((w&0x0F000000u)==0x0B000000u)return 1;
+            if((w&0xFE000000u)==0xFA000000u)return 1;
+            if((w&0x0FFFFFF0u)==0x012FFF30u)return 1;
+            return 0;}}
+          static void bt_scan(uintptr_t sp,siginfo_t*si){int fd=open("/dev/null",O_WRONLY),k,n=0;char sb[200];
+           if(si)L("  si_code=%d si_pid=%d (si_code -6 = dikirim lewat tgkill/raise oleh proses sendiri)\n",(int)si->si_code,(int)si->si_pid);
+           if(fd<0)return;
+           L("  [bt] kandidat jejak panggilan (alamat kembali yang didahului instruksi BL/BLX):\n");
+           for(k=0;k<6000&&n<70;k++){uintptr_t*pw=&((uintptr_t*)sp)[k];uintptr_t v;
+            if(!bt_ok((uintptr_t)pw,fd))break;
+            v=*pw;
+            if(!mod_of(v)){Dl_info d;if(!dladdr((void*)v,&d))continue;}
+            if(bt_is_call(v,fd)){symof(v,sb,sizeof sb);L("   bt sp+%04d: %08lx %s\n",k*4,(unsigned long)v,sb);n++;}}
+           close(fd);}
           static void on_sig(int s,siginfo_t*i,void*c){ucontext_t*u=c;uintptr_t pc=0,lr=0,sp=0;int k;
            static volatile int in_sig=0;
            /* Kalau handler kita sendiri crash (stack rusak), jangan ulangi -> exit langsung. */
@@ -1366,7 +1393,7 @@ jobs:
           #elif defined(__x86_64__)
           pc=(uintptr_t)u->uc_mcontext.gregs[REG_RIP];
           #endif
-          L("\n*** signal %d addr=%p pc=%p lr=%p sp=%p ***\n",s,i?i->si_addr:NULL,(void*)pc,(void*)lr,(void*)sp);hd_fault(i?(uintptr_t)i->si_addr:0);
+          L("\n*** signal %d addr=%p pc=%p lr=%p sp=%p ***\n",s,i?i->si_addr:NULL,(void*)pc,(void*)lr,(void*)sp);hd_fault(i?(uintptr_t)i->si_addr:0);bt_scan(sp,i);
           {Mod*m=mod_of(pc);if(m)L("  in %s+0x%lx\n",m->name,(unsigned long)(pc-m->bias));}
           #if defined(__arm__)
           L("  r0=%08lx r1=%08lx r2=%08lx r3=%08lx r4=%08lx r5=%08lx\n",(unsigned long)u->uc_mcontext.arm_r0,(unsigned long)u->uc_mcontext.arm_r1,(unsigned long)u->uc_mcontext.arm_r2,(unsigned long)u->uc_mcontext.arm_r3,(unsigned long)u->uc_mcontext.arm_r4,(unsigned long)u->uc_mcontext.arm_r5);
@@ -1381,7 +1408,7 @@ jobs:
           hd_sweep(1,0);fflush(NULL);_exit(128+s);}
           static void alarm_handler(int s){(void)s;L("[watchdog] timeout\n");_exit(4);}
           static int pint(const char*s){int n=0;while(*s>='0'&&*s<='9')n=n*10+*s++-'0';return n;}
-          int main(int argc,char**argv){const char*dir="libs";int i,dry=0;Mod*mm,*un,*il;struct utsname u;struct sigaction sa;char logp[256]="m2_log.txt";for(i=1;i<argc;i++){if(!strcmp(argv[i],"--nofence"))g_fence=0;else if(!strcmp(argv[i],"--noheapdbg"))g_hd=0;else if(!strcmp(argv[i],"--libdir")&&i+1<argc)dir=argv[++i];else if(!strcmp(argv[i],"--assets")&&i+1<argc)g_assets=argv[++i];else if(!strcmp(argv[i],"--stage")&&i+1<argc)g_stage=pint(argv[++i]);else if(!strcmp(argv[i],"--frames")&&i+1<argc)g_frames_target=pint(argv[++i]);else if(!strcmp(argv[i],"--timeout")&&i+1<argc)g_timeout=pint(argv[++i]);else if(!strcmp(argv[i],"--log")&&i+1<argc)snprintf(logp,sizeof logp,"%s",argv[++i]);else if(!strcmp(argv[i],"--dry"))dry=1;else if(!strcmp(argv[i],"--fps")&&i+1<argc)g_fps=pint(argv[++i]);}g_libdir=dir;g_log=fopen(logp,"w");if(g_log)dup2(fileno(g_log),2);L("== Let Me Eat M2 fix12+trace stage=%d frames=%d ==\n",g_stage,g_frames_target);L("[HEAP] heap debugger %s (ekor %u B, karantina %u blok)\n",g_hd?"AKTIF":"MATI",(unsigned)HD_TAIL,(unsigned)HD_QN);L("[HEAP] pagar halaman (guard page) %s, maks %u blok\n",g_fence?"AKTIF":"MATI",(unsigned)HD_FENCE_MAX);if(sizeof(void*)!=4){L("must be armhf\n");return 2;}uname(&u);L("system=%s %s %s glibc=%s\n",u.sysname,u.release,u.machine,gnu_get_libc_version());{stack_t ss;ss.ss_sp=malloc(1u<<17);ss.ss_size=1u<<17;ss.ss_flags=0;if(ss.ss_sp)sigaltstack(&ss,NULL);}memset(&sa,0,sizeof sa);sa.sa_sigaction=on_sig;sa.sa_flags=SA_SIGINFO|SA_ONSTACK;sigaction(SIGSEGV,&sa,NULL);sigaction(SIGBUS,&sa,NULL);sigaction(SIGILL,&sa,NULL);sigaction(SIGFPE,&sa,NULL);sigaction(SIGABRT,&sa,NULL);sigaction(SIGTRAP,&sa,NULL);sigaction(SIGSYS,&sa,NULL);signal(SIGALRM,alarm_handler);{char cw[400];if(getcwd(cw,sizeof cw))snprintf(g_save,sizeof g_save,"%s/save",cw);mkdir(g_save,0755);L("[save] %s\n",g_save);}init_jni_table();dlopen("libm.so.6",RTLD_NOW|RTLD_GLOBAL);dlopen("libgcc_s.so.1",RTLD_NOW|RTLD_GLOBAL);init_host_libs();if(load_mod(dir,"libmain.so",&mm)||load_mod(dir,"libunity.so",&un)||load_mod(dir,"libil2cpp.so",&il))return 1;if(relocate(mm)||relocate(un)||relocate(il))return 1;L("[resolve] unresolved=%d shim=%d glibc=%d weak=%d\n",cnt_unres,cnt_shim,cnt_libc,cnt_weak0);if(nunres)for(i=0;i<nunres;i++)L("UNRES %s\n",unres_name[i]);if(dry||g_stage<1){L("stage0 done\n");return 0;}if(g_timeout>0){alarm((unsigned)g_timeout);L("[watchdog] timeout %d detik\n",g_timeout);}protect(mm);protect(un);protect(il);run_init(mm);run_init(un);run_init(il);{void*f=mod_find(mm,"JNI_OnLoad");if(f)((int(*)(void*,void*))f)(&g_vmobj,NULL);}if(g_stage>=2){Native*n=find_native("NativeLoader","load");if(n){int r=((uint8_t(*)(void*,void*,void*))n->fn)(&g_envobj,mk_handle("com/unity3d/player/NativeLoader"),mk_handle(dir))&255;L("NativeLoader.load=%d\n",r);}else L("missing NativeLoader.load\n");{void*f=mod_find(un,"JNI_OnLoad");if(f)((int(*)(void*,void*))f)(&g_vmobj,NULL);}}if(g_stage>=3)m2_run();else L("stage2 JNI boot done; stage3 starts SDL/render\n");L("== M2 done ==\n");return 0;}
+          int main(int argc,char**argv){const char*dir="libs";int i,dry=0;Mod*mm,*un,*il;struct utsname u;struct sigaction sa;char logp[256]="m2_log.txt";for(i=1;i<argc;i++){if(!strcmp(argv[i],"--nofence"))g_fence=0;else if(!strcmp(argv[i],"--noheapdbg"))g_hd=0;else if(!strcmp(argv[i],"--libdir")&&i+1<argc)dir=argv[++i];else if(!strcmp(argv[i],"--assets")&&i+1<argc)g_assets=argv[++i];else if(!strcmp(argv[i],"--stage")&&i+1<argc)g_stage=pint(argv[++i]);else if(!strcmp(argv[i],"--frames")&&i+1<argc)g_frames_target=pint(argv[++i]);else if(!strcmp(argv[i],"--timeout")&&i+1<argc)g_timeout=pint(argv[++i]);else if(!strcmp(argv[i],"--log")&&i+1<argc)snprintf(logp,sizeof logp,"%s",argv[++i]);else if(!strcmp(argv[i],"--dry"))dry=1;else if(!strcmp(argv[i],"--fps")&&i+1<argc)g_fps=pint(argv[++i]);}g_libdir=dir;g_log=fopen(logp,"w");if(g_log)dup2(fileno(g_log),2);L("== Let Me Eat M2 fix13+bt stage=%d frames=%d ==\n",g_stage,g_frames_target);L("[HEAP] heap debugger %s (ekor %u B, karantina %u blok)\n",g_hd?"AKTIF":"MATI",(unsigned)HD_TAIL,(unsigned)HD_QN);L("[HEAP] pagar halaman (guard page) %s, maks %u blok\n",g_fence?"AKTIF":"MATI",(unsigned)HD_FENCE_MAX);if(sizeof(void*)!=4){L("must be armhf\n");return 2;}uname(&u);L("system=%s %s %s glibc=%s\n",u.sysname,u.release,u.machine,gnu_get_libc_version());{stack_t ss;ss.ss_sp=malloc(1u<<17);ss.ss_size=1u<<17;ss.ss_flags=0;if(ss.ss_sp)sigaltstack(&ss,NULL);}memset(&sa,0,sizeof sa);sa.sa_sigaction=on_sig;sa.sa_flags=SA_SIGINFO|SA_ONSTACK;sigaction(SIGSEGV,&sa,NULL);sigaction(SIGBUS,&sa,NULL);sigaction(SIGILL,&sa,NULL);sigaction(SIGFPE,&sa,NULL);sigaction(SIGABRT,&sa,NULL);sigaction(SIGTRAP,&sa,NULL);sigaction(SIGSYS,&sa,NULL);signal(SIGALRM,alarm_handler);{char cw[400];if(getcwd(cw,sizeof cw))snprintf(g_save,sizeof g_save,"%s/save",cw);mkdir(g_save,0755);L("[save] %s\n",g_save);}init_jni_table();dlopen("libm.so.6",RTLD_NOW|RTLD_GLOBAL);dlopen("libgcc_s.so.1",RTLD_NOW|RTLD_GLOBAL);init_host_libs();if(load_mod(dir,"libmain.so",&mm)||load_mod(dir,"libunity.so",&un)||load_mod(dir,"libil2cpp.so",&il))return 1;if(relocate(mm)||relocate(un)||relocate(il))return 1;L("[resolve] unresolved=%d shim=%d glibc=%d weak=%d\n",cnt_unres,cnt_shim,cnt_libc,cnt_weak0);if(nunres)for(i=0;i<nunres;i++)L("UNRES %s\n",unres_name[i]);if(dry||g_stage<1){L("stage0 done\n");return 0;}if(g_timeout>0){alarm((unsigned)g_timeout);L("[watchdog] timeout %d detik\n",g_timeout);}protect(mm);protect(un);protect(il);run_init(mm);run_init(un);run_init(il);{void*f=mod_find(mm,"JNI_OnLoad");if(f)((int(*)(void*,void*))f)(&g_vmobj,NULL);}if(g_stage>=2){Native*n=find_native("NativeLoader","load");if(n){int r=((uint8_t(*)(void*,void*,void*))n->fn)(&g_envobj,mk_handle("com/unity3d/player/NativeLoader"),mk_handle(dir))&255;L("NativeLoader.load=%d\n",r);}else L("missing NativeLoader.load\n");{void*f=mod_find(un,"JNI_OnLoad");if(f)((int(*)(void*,void*))f)(&g_vmobj,NULL);}}if(g_stage>=3)m2_run();else L("stage2 JNI boot done; stage3 starts SDL/render\n");L("== M2 done ==\n");return 0;}
           EOF_C
       - name: Kompilasi (armhf)
         run: |
@@ -1469,7 +1496,7 @@ jobs:
           3. Jalankan LetMeEatM2.sh dari menu Ports muOS.
           4. Kirim m2_log.txt + m2_stdout.txt ke Claude untuk analisa.
           
-          BUILD DIAGNOSA HEAP v3 (fix12+trace, pagar halaman):
+          BUILD DIAGNOSA HEAP v3 (fix13+bt, pagar halaman):
           - Loader membungkus malloc/free/memset/memcpy milik game. Tiap blok (maks 15000 blok sekaligus) diberi halaman penjaga di ujungnya:
           kalau ada kode yang menulis melewati ujung blok, proses langsung SEGV tepat di pelakunya, dan log memuat baris "[HEAP] >>> FAULT".
           - Setelah menjalankan LetMeEatM2.sh, kirim m2_log.txt dan cari baris yang diawali [HEAP].
