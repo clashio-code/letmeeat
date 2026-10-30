@@ -169,6 +169,15 @@ jobs:
             "GetStaticLongField",
             "GetStaticFloatField",
             "GetStaticDoubleField",
+            "SetStaticObjectField",
+            "SetStaticBooleanField",
+            "SetStaticByteField",
+            "SetStaticCharField",
+            "SetStaticShortField",
+            "SetStaticIntField",
+            "SetStaticLongField",
+            "SetStaticFloatField",
+            "SetStaticDoubleField",
             "NewString",
             "GetStringLength",
             "GetStringChars",
@@ -653,6 +662,8 @@ jobs:
           typedef struct{uint8_t*data;long len,pos;}JStr;static JStr g_streams[64];static int g_stream_n;
           static JStr*stream_get(void*h){uintptr_t v=(uintptr_t)h;if(v<0x74000000u||v>=0x74000000u+64u*4u)return NULL;return &g_streams[(v-0x74000000u)/4u];}
           static void*stream_handle(int i){return(void*)(uintptr_t)(0x74000000u+(uint32_t)i*4u);}
+          /* AssetManager.open("bin/Data/Managed/Metadata/global-metadata.dat") -> InputStream nyata.
+             Kalau stream-nya palsu, IL2CPP dapat pointer metadata NULL -> crash saat init. */
           static void*stream_open(const char*rel){
            char p[900];FILE*f;long z;uint8_t*b;
            if(!rel||!*rel)return NULL;
@@ -669,6 +680,11 @@ jobs:
            L("[stream] open \"%s\" -> %ld byte\n",rel,z);
            return stream_handle(g_stream_n++);
           }
+          /* ======================= APK zip (STORE) dari assets/ =======================
+             Unity/IL2CPP baca aset (global-metadata.dat, data.unity3d, ...) langsung dari
+             dalam file APK lewat zip reader bawaan -> ApplicationInfo.sourceDir HARUS
+             menunjuk file zip asli. Kita sudah pegang assets/ hasil extract, jadi rangkai
+             sendiri jadi letmeeat.apk (sekali, cached). */
           typedef struct{char rel[320];uint32_t sz,crc,off;}ZipE;
           static ZipE*ze;static int nze,mze;
           static uint32_t crc_tab[256];static int crc_ok;
@@ -701,7 +717,7 @@ jobs:
            L("[apk] merangkai %s (%d file dari %s)...\n",outp,nze,assetsdir);
            for(i=0;i<nze;i++){
             char ap[700];FILE*in;uint8_t*buf;size_t got;long ds;
-            snprintf(ap,sizeof ap,"%s/%s",assetsdir,ze[i].rel+7);
+            snprintf(ap,sizeof ap,"%s/%s",assetsdir,ze[i].rel+7); /* "assets/..." -> assetsdir/<sisa> */
             in=fopen(ap,"rb");
             if(!in){L("[apk] baca gagal: %s\n",ap);continue;}
             buf=malloc(ze[i].sz?ze[i].sz:1);
@@ -709,6 +725,7 @@ jobs:
             if(got!=ze[i].sz){L("[apk] baca tidak lengkap: %s\n",ap);free(buf);continue;}
             ze[i].crc=crc32b(buf,ze[i].sz);
             ze[i].off=(uint32_t)ftell(f);
+            /* local file header (STORE) */
             zput32(f,0x04034b50);zput16(f,20);zput16(f,0);zput16(f,0);zput16(f,0);zput16(f,0);
             zput32(f,ze[i].crc);zput32(f,ze[i].sz);zput32(f,ze[i].sz);
             zput16(f,(uint16_t)strlen(ze[i].rel));zput16(f,0);
@@ -730,11 +747,13 @@ jobs:
            L("[apk] selesai: %s (%d file)\n",outp,nze);
            return 0;
           }
+          /* Siapkan path game: root abs, dataDir tulis, APK (zip) utk Unity. */
           static int setup_game_paths(const char*libdir,const char*assetsdir){
            char tmp[600],ap[600];struct stat st;
            if(!getcwd(g_game_root,sizeof g_game_root))snprintf(g_game_root,sizeof g_game_root,".");
            snprintf(g_data_dir,sizeof g_data_dir,"%s/data",g_game_root);
            if(mkdir(g_data_dir,0755)!=0&&errno!=EEXIST){L("[path] gagal buat dataDir %s: %s\n",g_data_dir,strerror(errno));return -1;}
+           /* APK yang sudah ada (--apk atau letmeeat.apk) dipakai; kalau tidak, rangkai dari assets/ */
            if(file_exists(g_apk_arg)){if(!realpath(g_apk_arg,tmp))snprintf(tmp,sizeof tmp,"%s/%s",g_game_root,g_apk_arg);snprintf(g_package_path,sizeof g_package_path,"%s",tmp);}
            else{
             snprintf(ap,sizeof ap,"%s/letmeeat.apk",g_game_root);
@@ -746,6 +765,9 @@ jobs:
            (void)libdir;
            return 0;
           }
+          /* Cache IL2CPP (metadata + resources) disalin Unity ke folder data/save. Kalau
+             run sebelumnya crash saat menyalin, salinannya terpotong -> IL2CPP baca lewat
+             EOF -> SIGBUS/heap rusak. Bersihkan cache supaya boot selalu dari sumber. */
           static int rm_cb(const char*p,const struct stat*st,int t,struct FTW*w){(void)st;(void)w;if(t==FTW_DP)rmdir(p);else unlink(p);return 0;}
           static void wipe_il2cpp_cache(void){
            char d[600];
@@ -769,10 +791,13 @@ jobs:
           typedef struct{char t;int len;void*data;}JArrM;static JArrM g_arrs[512];static int g_arr_n;
           static void*arr_new(char t,int len){JArrM*a;size_t sz=1;if(len<0)len=0;if(g_arr_n>=512)return NULL;switch(t){case 'J':case 'D':sz=8;break;case 'I':case 'F':sz=4;break;case 'S':case 'C':sz=2;break;case 'L':sz=sizeof(void*);break;default:sz=1;}a=&g_arrs[g_arr_n];a->t=t;a->len=len;a->data=calloc(len?(size_t)len:1,sz);if(!a->data)return NULL;return(void*)(uintptr_t)(0x72000000u+(uint32_t)g_arr_n++*4u);}
           static JArrM*arrm_get(void*h);
+          /* window Android palsu (dipakai juga GetIntField: widthPixels/heightPixels) */
           typedef struct{int w,h,fmt,refs;}NWin;static NWin g_nwin={640,480,1,1};
+          /* state sentuhan virtual (dipakai juga oleh handler JNI MotionEvent di bawah) */
           typedef struct{int action;float x,y;int seq,tool,id;uint64_t when,down;float pres,area;int state;float precision;}MotEv;
           static MotEv g_mev={0};static int g_have_mev;static int g_injected;static void*motion_obj;static int touch_seq;
           static void*stream_handle(int i);static void*stream_open(const char*rel);
+          /* JNI primitive arrays: byte[] untuk InputStream.read(byte[], offset, length). */
           static void* j_NewByteArray(void*e,int len){(void)e;if(len<0)len=0;if(len>16*1024*1024)len=16*1024*1024;return arr_new('B',len);}
           static void* j_NewBooleanArray(void*e,int len){(void)e;return arr_new('Z',len>0?len:0);}
           static void* j_NewCharArray(void*e,int len){(void)e;return arr_new('C',len>0?len:0);}
@@ -789,6 +814,7 @@ jobs:
           static char *reg_str[8192];static int reg_n,obj_serial;
           static const void *g_jni_table[256],*g_vm_table[16];
           static void *g_envobj=(void*)g_jni_table,*g_vmobj=(void*)g_vm_table;
+          /* Ring buffer panggilan JNI terakhir -> diagnostics crash. */
           static const char*g_jr_n[16];static const void*g_jr_p[16];static unsigned g_jr_i;
           #define JL(nm,p) do{unsigned _k=g_jr_i++&15u;g_jr_n[_k]=(nm);g_jr_p[_k]=(const void*)(p);}while(0)
           static void *mk_handle(const char*s){int i;for(i=0;i<reg_n;i++)if(!strcmp(reg_str[i],s))return(void*)(uintptr_t)(0x70000000u+4u*(uint32_t)i);if(reg_n>=8192)return(void*)0x70000000u;reg_str[reg_n]=strdup(s?s:"");return(void*)(uintptr_t)(0x70000000u+4u*(uint32_t)reg_n++);}
@@ -805,6 +831,11 @@ jobs:
           static Mod*mod_find_name(const char*);
           static void*mod_find(const Mod*,const char*);
           static Native*find_native(const char*c,const char*n){int i;for(i=0;i<g_nnat;i++)if(!strcmp(g_natives[i].name,n)&&(!c||strstr(g_natives[i].cls,c)))return &g_natives[i];return NULL;}
+          /* Cari path .so buat ClassLoader.findLibrary. Modul yang sudah dimuat dianggap ada
+             tanpa cek file (kita sudah punya isinya di memori). Pustaka yang tidak ditemukan
+             -> kembalikan 0 (NULL ke Java), sesuai Android asli: file tidak ada = NULL.
+             GetStringUTFChars sekarang aman untuk NULL (return NULL, bukan registry pointer),
+             jadi jalur NULL tidak lagi bikin double-free. */
           static int find_lib_path(const char*nm,char*out,size_t n){
            char bn[128];const char*b=strrchr(nm?nm:"",'/');
            char p[512];struct stat st;
@@ -818,6 +849,7 @@ jobs:
           }
           static int collect_va(const char*s,va_list ap,jv*a){const char*p=s+1;int n=0;while(*p&&*p!=')'&&n<16){memset(&a[n],0,sizeof a[n]);while(*p=='[')p++;if(*p=='L'){a[n].l=va_arg(ap,void*);while(*p&&*p!=';')p++;}else if(*p=='J')a[n].j=va_arg(ap,int64_t);else if(*p=='F')a[n].f=(float)va_arg(ap,double);else if(*p=='D')a[n].d=va_arg(ap,double);else a[n].i=va_arg(ap,int);if(*p)p++;n++;}return n;}
           static void java_invoke(void*mid,void*o,const jv*a,jv*r){MInfo*m=mi_get(mid);const char*rp;char rt;memset(r,0,sizeof*r);if(!m)return;JL("CallMethod",mid);m->count++;rp=strchr(m->sig,')');rt=rp?rp[1]:'V';if(m->count<5)L("[JNI] %s.%s%s\n",m->cls,m->name,m->sig);
+           /* --- MotionEvent: Unity membaca state sentuhan lewat method getter --- */
            if(!strcmp(m->name,"getAction"))r->i=g_mev.action;
            else if(!strcmp(m->name,"getActionMasked"))r->i=g_mev.action&0xff;
            else if(!strcmp(m->name,"getActionIndex"))r->i=0;
@@ -860,10 +892,13 @@ jobs:
            else if(!strcmp(m->name,"getPackageName"))r->l=mk_handle("com.letmeeat.game");
            else if(!strcmp(m->name,"getPackageCodePath")||!strcmp(m->name,"getPackageResourcePath"))r->l=mk_handle(g_package_path);
            else if(!strcmp(m->name,"getAssets"))r->l=mk_obj("android/content/res/AssetManager");
+           /* AssetManager.open("bin/Data/...") -> InputStream sungguhan (data asli dari disk) */
            else if(!strcmp(m->name,"open")){const char*rel=h2sn(a[0].l);void*st=stream_open(rel);r->l=st?st:mk_handle("");}
+           /* InputStream.read(byte[],off,len) -> jumlah byte terbaca; read() -> 1 byte */
            else if(!strcmp(m->name,"read")&&strstr(m->cls,"InputStream")){JStr*s=stream_get(o);
             if(!s){r->i=-1;}
             else{
+             /* hitung jumlah argumen dari sig; "()I" -> read(), "([BII)I" -> read(buf,off,len) */
              const char*lp=strchr(m->sig,'(');int nargs=0;JArrM*arr;
              if(lp){const char*q=lp+1;while(*q&&*q!=')'){if(*q=='[')q++;else if(*q=='L'){while(*q&&*q!=';')q++;if(*q)q++;nargs++;}else{nargs++;if(*q=='J'||*q=='D')q++;else q++;}}}
              if(nargs>=3&&(arr=arrm_get(a[0].l))&&arr->t=='B'){
@@ -880,6 +915,9 @@ jobs:
            else if(!strcmp(m->name,"getMainLooper"))r->l=mk_obj("android/os/Looper");
            else if(!strcmp(m->name,"getLanguageCode"))r->l=mk_handle("en");
            else if(!strcmp(m->name,"getLibrary")){char p[512];snprintf(p,sizeof p,"%s/lib%s.so",g_libdir,h2sn(a[0].l));r->l=mk_handle(p);}
+           /* ClassLoader.findLibrary("il2cpp") -> baselib dlopen(path) lalu dlsym("il2cpp_init").
+              Kalau hasilnya kosong, dlopen("") di glibc nunjuk ke PROGRAM UTAMA (loader),
+              jadi il2cpp_* tidak ketemu -> "Failed to load Il2CPP". Jadi harus path asli. */
            else if(!strcmp(m->name,"findLibrary")){const char*nm=h2sn(a[0].l);char p[512];if(nm&&*nm&&find_lib_path(nm,p,sizeof p)){L("[JNI] findLibrary(\"%s\") -> %s\n",nm,p);r->l=mk_handle(p);}else{L("[JNI] findLibrary(\"%s\") -> NULL (tidak ditemukan)\n",nm?nm:"");r->l=NULL;}}
            else if(!strcmp(m->name,"getRawAssetFileOffset")||!strcmp(m->name,"getRawAssetFileLength")){char p[800];struct stat st;snprintf(p,sizeof p,"%s/%s",g_assets,h2s(a[0].l));if(!file_exists(p))snprintf(p,sizeof p,"%s/assets/%s",g_game_root,h2s(a[0].l));r->j=stat(p,&st)==0?(!strcmp(m->name,"getRawAssetFileOffset")?0:(int64_t)st.st_size):0;}
            else if(rt=='L'&&rp&&!strcmp(rp+1,"Ljava/lang/String;"))r->l=mk_handle("");
@@ -896,13 +934,25 @@ jobs:
           #define VOIDCALL(N) static void j_Call##N##Method(void*e,void*o,void*m,...){va_list ap;jv a[16]={0},r;(void)e;va_start(ap,m);PREP(m,ap,a);va_end(ap);java_invoke(m,o,a,&r);} static void j_Call##N##MethodV(void*e,void*o,void*m,va_list ap){jv a[16]={0},r;(void)e;PREP(m,ap,a);java_invoke(m,o,a,&r);} static void j_Call##N##MethodA(void*e,void*o,void*m,const jv*a){jv r;(void)e;java_invoke(m,o,a,&r);} static void j_CallStatic##N##Method(void*e,void*o,void*m,...){va_list ap;jv a[16]={0},r;(void)e;(void)o;va_start(ap,m);PREP(m,ap,a);va_end(ap);java_invoke(m,o,a,&r);} static void j_CallStatic##N##MethodV(void*e,void*o,void*m,va_list ap){jv a[16]={0},r;(void)e;(void)o;PREP(m,ap,a);java_invoke(m,o,a,&r);} static void j_CallStatic##N##MethodA(void*e,void*o,void*m,const jv*a){jv r;(void)e;(void)o;java_invoke(m,o,a,&r);}
           VOIDCALL(Void)
           static int jni_trap(int i){L("[JNI] slot %d %s belum dipasang\n",i,jni_names[i]);JL(jni_names[i],NULL);return 0;}
+          /* (ring buffer panggilan JNI dideklarasikan di atas, sebelum java_invoke) */
           static int j_GetVersion(void*e){(void)e;return 0x10006;}static void*j_FindClass(void*e,const char*n){(void)e;JL("FindClass",n);return mk_handle(n);}static void*j_GetObjectClass(void*e,void*o){(void)e;JL("GetObjectClass",o);return mk_handle(h2s(o));}
           static void*j_GetMethodID(void*e,void*c,const char*n,const char*s){(void)e;return mk_method(h2s(c),n,s,0);}static void*j_GetStaticMethodID(void*e,void*c,const char*n,const char*s){(void)e;return mk_method(h2s(c),n,s,1);}static void*j_GetFieldID(void*e,void*c,const char*n,const char*s){(void)e;(void)s;return mk_handle(n);}
           static void*j_NewObject(void*e,void*c,void*m,...){(void)e;(void)m;return mk_obj(h2s(c));}static void*j_NewObjectV(void*e,void*c,void*m,va_list a){(void)e;(void)m;(void)a;return mk_obj(h2s(c));}static void*j_NewObjectA(void*e,void*c,void*m,const jv*a){(void)e;(void)m;(void)a;return mk_obj(h2s(c));}static void*j_AllocObject(void*e,void*c){(void)e;return mk_obj(h2s(c));}
           static void*j_ident(void*e,void*o){(void)e;return o;}static void j_void2(void*e,void*o){(void)e;(void)o;}static int j_zero1(void*e){(void)e;return 0;}static int j_zero2(void*e,int a){(void)e;(void)a;return 0;}
           static void*j_NewStringUTF(void*e,const char*s){(void)e;return mk_handle(s?s:"");}static int j_GetStringUTFLength(void*e,void*s){(void)e;return(int)strlen(h2s(s));}
+          /* GetStringUTFChars harus mengembalikan salinan malloc: game boleh memakainya
+             lalu melepasnya. Kalau handle tidak valid (termasuk NULL dari findLibrary
+             gagal), kembalikan NULL — jangan pernah beri string palsu ke game. */
           static const char*j_GetStringUTFChars(void*e,void*s,uint8_t*c){uintptr_t v=(uintptr_t)s;char*o;(void)e;if(v<0x70000000u||v>=0x70000000u+8192u*4u){if(c)*c=0;return NULL;}if(c)*c=1;o=strdup(h2sn(s));return o;}
+          /* Android isCopy=false: ReleaseStringUTFChars/ReleaseStringChars adalah no-op.
+             GetStringUTFChars tetap strdup supaya game yang free() langsung tetap benar.
+             Kalau kita free() di Release DAN game juga free() -> double free. */
           static void j_ReleaseStringUTFChars(void*e,void*s,const char*c){(void)e;(void)s;(void)c;}
+
+          /* --- JNI lengkap: ref global/local, exception, string UTF-16, field, array ---
+             NewGlobalRef yang mengembalikan NULL bikin setiap objek Java Unity jadi NULL ->
+             class handle kosong ("?.getClassLoader") lalu crash native. Semua slot ini WAJIB
+             dipasang;-stub bawaan hanya log dan return 0 (NULL) -> nanti dereference NULL. */
           static const char*h2sn(void*h){uintptr_t v=(uintptr_t)h;if(v>=0x70000000u&&(v-0x70000000u)/4u<(uintptr_t)reg_n)return reg_str[(v-0x70000000u)/4u];return "";}
           static void j_noop2(void*e,void*o){(void)e;(void)o;}
           static void* j_nullret(void*e,void*o){(void)e;(void)o;return NULL;}
@@ -916,6 +966,7 @@ jobs:
           static int j_mon_zero(void*e,void*o){(void)e;(void)o;return 0;}
           static void* j_weak_ident(void*e,void*o){(void)e;return o;}
           static int j_globref_chk(void*e,void*o){(void)e;(void)o;return 1;}
+          /* Build.* static fields — Unity bertanya MANUFACTURER/MODEL/FINGERPRINT/CPU_ABI/RELEASE. */
           static const char*sf_val(const char*n){
            static const char*const t[][2]={{"MANUFACTURER","Anbernic"},{"MODEL","RG40XXV"},{"BRAND","Anbernic"},{"DEVICE","rg40xxv"},{"PRODUCT","rg40xxv"},{"HARDWARE","linux"},{"BOARD","rg40xxv"},{"DISPLAY","rg40xxv"},{"ID","rg40xxv"},{"HOST","localhost"},{"TAGS","release-keys"},{"TYPE","user"},{"USER","user"},{"CPU_ABI","armeabi-v7a"},{"CPU_ABI2",""},{"FINGERPRINT","Anbernic/rg40xxv/rg40xxv:10/QP1A/1:user/release-keys"},{"RELEASE","10"},{"CODENAME","REL"},{"INCREMENTAL","1"},{"MEDIA_MOUNTED","mounted"},{NULL,NULL}};
            int i;for(i=0;t[i][0];i++)if(!strcmp(t[i][0],n))return t[i][1];return "";}
@@ -926,6 +977,7 @@ jobs:
           #define SBUF_N 512
           static uint16_t*g_sbuf[SBUF_N];static int g_sbuf_n;
           static const uint16_t*j_GetStringChars(void*e,void*s,uint8_t*copy){const char*p=h2sn(s);uint16_t*o;size_t k=0;(void)e;if(copy)*copy=1;o=malloc((strlen(p)+1)*2);if(!o)return NULL;while(*p){unsigned c=(unsigned char)*p++;if(c>=0xE0&&p[0]&&p[1]){c=((c&0xf)<<12)|((unsigned)(p[0]&0x3f)<<6)|(p[1]&0x3f);p+=2;}else if(c>=0xC0&&p[0]){c=((c&0x1f)<<6)|(p[0]&0x3f);p+=1;}o[k++]=(uint16_t)c;}o[k]=0;if(g_sbuf_n<SBUF_N)g_sbuf[g_sbuf_n++]=o;return o;}
+          /* isCopy=false: no-op, game boleh free() sendiri atau tidak; jangan free di sini. */
           static void j_ReleaseStringChars(void*e,void*s,const uint16_t*c){(void)e;(void)s;(void)c;}
           static long j_GetIntField(void*e,void*o,void*f){const char*fn=h2sn(f);(void)e;(void)o;if(strstr(fn,"widthPixels"))return g_nwin.w;if(strstr(fn,"heightPixels"))return g_nwin.h;if(strstr(fn,"densityDpi"))return 160;if(strstr(fn,"SDK_INT"))return 30;if(strstr(fn,"MemoryClass"))return 128;if(strstr(fn,"targetSdkVersion")||strstr(fn,"targetSdk"))return 30;if(strstr(fn,"minSdkVersion")||strstr(fn,"minSdk")||strstr(fn,"minApiLevel"))return 21;if(strstr(fn,"versionCode"))return 1;return 0;}
           static int64_t j_GetLongField(void*e,void*o,void*f){(void)e;(void)o;(void)f;return 0;}
@@ -939,6 +991,7 @@ jobs:
           static void* j_GetObjectArrayElement(void*e,void*arr,int i){JArrM*a=arrm_get(arr);(void)e;if(!a||i<0||i>=a->len)return NULL;return((void**)a->data)[i];}
           static void j_SetObjectArrayElement(void*e,void*arr,int i,void*v){JArrM*a=arrm_get(arr);(void)e;if(a&&i>=0&&i<a->len)((void**)a->data)[i]=v;}
           static int j_ExceptionCheck(void*e){(void)e;return 0;}
+          /* DirectByteBuffer: Unity pakai ini buat audio/graphics; sediakan blok memori asli. */
           typedef struct{void*addr;long cap;}DBB;static DBB g_dbb[64];static int g_dbb_n;
           static void* j_NewDirectByteBuffer(void*e,void*addr,long cap){DBB*d;(void)e;if(g_dbb_n>=64)return NULL;d=&g_dbb[g_dbb_n++];if(cap>0&&addr){d->addr=malloc((size_t)cap);if(d->addr)memcpy(d->addr,addr,(size_t)cap);}else d->addr=NULL;d->cap=cap;return(void*)(uintptr_t)(0x73000000u+(uint32_t)(g_dbb_n-1)*4u);}
           static DBB*dbb_get(void*h){uintptr_t v=(uintptr_t)h;if(v<0x73000000u||v>=0x73000000u+64u*4u)return NULL;return &g_dbb[(v-0x73000000u)/4u];}
@@ -947,6 +1000,7 @@ jobs:
           static int j_GetJavaVM(void*e,void**v){(void)e;*v=(void*)&g_vmobj;return 0;}static int vm_Destroy(void*v){(void)v;return 0;}static int vm_Attach(void*v,void**e,void*a){(void)v;(void)a;*e=(void*)&g_envobj;return 0;}static int vm_GetEnv(void*v,void**e,int ver){(void)v;(void)ver;*e=(void*)&g_envobj;return 0;}
           #define SETFAM(b,N) do{g_jni_table[b]=(void*)j_Call##N##Method;g_jni_table[b+1]=(void*)j_Call##N##MethodV;g_jni_table[b+2]=(void*)j_Call##N##MethodA;g_jni_table[b+80]=(void*)j_CallStatic##N##Method;g_jni_table[b+81]=(void*)j_CallStatic##N##MethodV;g_jni_table[b+82]=(void*)j_CallStatic##N##MethodA;}while(0)
 
+          /* ======================= bionic -> glibc shim ======================= */
           static uint32_t b_stack_chk_guard=0x00a4c3e1u;static char bionic_sF[252];static pthread_mutex_t g_initlock=PTHREAD_MUTEX_INITIALIZER;
           static int *b_errno_ptr(void){return &errno;}static int b_log_write(int p,const char*t,const char*x){L("[droid %d/%s] %s\n",p,t?t:"?",x?x:"");return 1;}
           static void b_abort_msg(const char*m){L("[droid] android_set_abort_message: %s\n",m?m:"(null)");}
@@ -957,20 +1011,19 @@ jobs:
           static int b_mutexattr_init(long*a){*a=0;return 0;}static int b_mutexattr_settype(long*a,int t){*a=t;return 0;}static int b_mutexattr_gettype(const long*a,int*t){*t=(int)*a;return 0;}static int b_mutexattr_destroy(long*a){(void)a;return 0;}
           static int b_condattr_init(long*a){*a=0;return 0;}static int b_condattr_destroy(long*a){(void)a;return 0;}
           static int b_sem_trywait(uint32_t*s){return sem_trywait((sem_t*)(uintptr_t)*s);}static int b_attr_detach(uint32_t*s,int d){return pthread_attr_setdetachstate((pthread_attr_t*)(uintptr_t)*s,d);}
-          static int b_thread_detach(uint32_t t){if(t<0x10000u){L("[shim] pthread_detach(0x%x) handle tidak valid -> ESRCH (caller=%p)\n",(unsigned)t,__builtin_return_address(0));return 3;}return pthread_detach((pthread_t)(uintptr_t)t);}static int b_thread_equal(uint32_t a,uint32_t b){return pthread_equal((pthread_t)(uintptr_t)a,(pthread_t)(uintptr_t)b);}static void b_thread_exit(void*v){pthread_exit(v);}static int b_thread_join(uint32_t t,void**v){if(t<0x10000u)return 3;return pthread_join((pthread_t)(uintptr_t)t,v);}static uint32_t b_thread_self(void){return(uint32_t)(uintptr_t)pthread_self();}static int b_thread_keydel(uint32_t k){return pthread_key_delete((pthread_key_t)k);}static int b_thread_once(uint32_t*c,void(*fn)(void)){return pthread_once((pthread_once_t*)c,fn);}
+          /* bionic pthread_detach menerima pthread_t by value; handle tidak valid jangan diteruskan ke glibc. */
+          static int b_thread_detach(uint32_t t){if(t<0x10000u)return ESRCH;return pthread_detach((pthread_t)(uintptr_t)t);}static int b_thread_equal(uint32_t a,uint32_t b){return pthread_equal((pthread_t)(uintptr_t)a,(pthread_t)(uintptr_t)b);}static void b_thread_exit(void*v){pthread_exit(v);}static int b_thread_join(uint32_t t,void**v){if(t<0x10000u)return ESRCH;return pthread_join((pthread_t)(uintptr_t)t,v);}static uint32_t b_thread_self(void){return(uint32_t)(uintptr_t)pthread_self();}static int b_thread_keydel(uint32_t k){return pthread_key_delete((pthread_key_t)k);}static int b_thread_once(uint32_t*c,void(*fn)(void)){return pthread_once((pthread_once_t*)c,fn);}
           static int b_rwlock_init(uint32_t*s,const void*a){pthread_rwlock_t*r=calloc(1,sizeof*r);(void)a;pthread_rwlock_init(r,NULL);*s=U32(r);return 0;}static pthread_rwlock_t*b_rw_get(uint32_t*s){return(pthread_rwlock_t*)(uintptr_t)*s;}static int b_rw_rd(uint32_t*s){return pthread_rwlock_rdlock(b_rw_get(s));}static int b_rw_wr(uint32_t*s){return pthread_rwlock_wrlock(b_rw_get(s));}static int b_rw_un(uint32_t*s){return pthread_rwlock_unlock(b_rw_get(s));}static int b_rw_des(uint32_t*s){if(*s>0xffff){pthread_rwlock_t*r=(void*)(uintptr_t)*s;pthread_rwlock_destroy(r);free(r);}*s=0;return 0;}
           static int b_sig_suspend(const uint32_t*s){sigset_t h;int i;sigemptyset(&h);for(i=0;i<32;i++)if(*s&(1u<<i))sigaddset(&h,i+1);return sigsuspend(&h);}static void b_sig_alt(const void*a,void*b){sigaltstack((const stack_t*)a,(stack_t*)b);}
           static int b_android_api(void){return 30;}static void b_choreo(void*a,void*b,void*c){(void)a;(void)b;(void)c;}
-static int b_isw_l(wint_t c,void*l){(void)l;return iswalpha(c);}
-static long long b_strtoll_l(const char*s,char**e,int b,void*l){(void)l;return strtoll(s,e,b);}
-static unsigned long long b_strtoull_l(const char*s,char**e,int b,void*l){(void)l;return strtoull(s,e,b);}
-static long double b_strtold_l(const char*s,char**e,void*l){(void)l;return strtold(s,e);}
-static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return 1;}static int b_locale_noop(void*p){(void)p;return 0;}static int b_locale_set(int c,const char*l){(void)c;(void)l;return 0;}
+          static int b_isw_l(wint_t c,void*l){(void)l;return iswalpha(c);}static long long b_strtoll_l(const char*s,char**e,int b,void*l){(void)l;return strtoll(s,e,b);}
+          static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return 1;}static int b_locale_noop(void*p){(void)p;return 0;}static int b_locale_set(int c,const char*l){(void)c;(void)l;return 0;}
           static int b_setjmp(void*p){return _setjmp((struct __jmp_buf_tag*)p);}static void b_longjmp(void*p,int v){longjmp((struct __jmp_buf_tag*)p,v);}
           static FILE*xf(FILE*f){uintptr_t a=(uintptr_t)f,b=(uintptr_t)bionic_sF;if(a>=b&&a<b+sizeof bionic_sF){unsigned i=(unsigned)((a-b)/84);return i==0?stdin:i==1?stdout:stderr;}return f;}
           static int b_log_print(int p,const char*t,const char*f,...){char b[1024];va_list a;va_start(a,f);vsnprintf(b,sizeof b,f?f:"",a);va_end(a);return b_log_write(p,t,b);}static int b_log_vprint(int p,const char*t,const char*f,va_list a){char b[1024];vsnprintf(b,sizeof b,f?f:"",a);return b_log_write(p,t,b);}
           static void b_assert2(const char*f,int l,const char*n,const char*m){L("ASSERT %s:%d %s %s\n",f?f:"?",l,n?n:"?",m?m:"");abort();}static int b_atexit(void*o,void(*d)(void*),void*x){extern int __cxa_atexit(void(*)(void*),void*,void*);return __cxa_atexit(d,o,x);}
           static int b_fprintf(FILE*f,const char*fmt,...){va_list a;int r;va_start(a,fmt);r=vfprintf(xf(f),fmt,a);va_end(a);return r;}static int b_vfprintf(FILE*f,const char*fmt,va_list a){return vfprintf(xf(f),fmt,a);}static int b_fputs(const char*s,FILE*f){return fputs(s,xf(f));}static int b_fputc(int c,FILE*f){return fputc(c,xf(f));}static size_t b_fwrite(const void*p,size_t s,size_t n,FILE*f){return fwrite(p,s,n,xf(f));}static size_t b_fread(void*p,size_t s,size_t n,FILE*f){return fread(p,s,n,xf(f));}static int b_fflush(FILE*f){return fflush(xf(f));}static char*b_fgets(char*s,int n,FILE*f){return fgets(s,n,xf(f));}static int b_fgetc(FILE*f){return fgetc(xf(f));}
+          /* Temporary stat64 passthrough: bionic ARM32 stat layout is translated below. */
           static pthread_mutex_t*mx_get(uint32_t*s){uint32_t v=__atomic_load_n(s,__ATOMIC_ACQUIRE);if(v>0xffff)return(pthread_mutex_t*)(uintptr_t)v;pthread_mutex_lock(&g_initlock);v=*s;if(v<=0xffff){pthread_mutex_t*m=calloc(1,sizeof*m);pthread_mutexattr_t a;pthread_mutexattr_init(&a);if(v&0x4000)pthread_mutexattr_settype(&a,PTHREAD_MUTEX_RECURSIVE);pthread_mutex_init(m,&a);pthread_mutexattr_destroy(&a);v=U32(m);__atomic_store_n(s,v,__ATOMIC_RELEASE);}pthread_mutex_unlock(&g_initlock);return(pthread_mutex_t*)(uintptr_t)v;}
           static int b_mxinit(uint32_t*s,const long*a){pthread_mutex_t*m=calloc(1,sizeof*m);pthread_mutexattr_t x;pthread_mutexattr_init(&x);if(a&&*a==1)pthread_mutexattr_settype(&x,PTHREAD_MUTEX_RECURSIVE);pthread_mutex_init(m,&x);pthread_mutexattr_destroy(&x);*s=U32(m);return 0;}static int b_mxdestroy(uint32_t*s){if(*s>0xffff){pthread_mutex_t*m=(void*)(uintptr_t)*s;pthread_mutex_destroy(m);free(m);}*s=0;return 0;}static int b_mxlock(uint32_t*s){return pthread_mutex_lock(mx_get(s));}static int b_mxunlock(uint32_t*s){return pthread_mutex_unlock(mx_get(s));}static int b_mxtry(uint32_t*s){return pthread_mutex_trylock(mx_get(s));}
           static pthread_cond_t*cv_get(uint32_t*s){uint32_t v=*s;if(v>0xffff)return(pthread_cond_t*)(uintptr_t)v;pthread_mutex_lock(&g_initlock);v=*s;if(v<=0xffff){pthread_cond_t*c=calloc(1,sizeof*c);pthread_cond_init(c,NULL);v=U32(c);*s=v;}pthread_mutex_unlock(&g_initlock);return(pthread_cond_t*)(uintptr_t)v;}static int b_cvinit(uint32_t*s,const void*a){pthread_cond_t*c=calloc(1,sizeof*c);(void)a;pthread_cond_init(c,NULL);*s=U32(c);return 0;}static int b_cvwait(uint32_t*c,uint32_t*m){return pthread_cond_wait(cv_get(c),mx_get(m));}static int b_cvtimed(uint32_t*c,uint32_t*m,const struct timespec*t){return pthread_cond_timedwait(cv_get(c),mx_get(m),t);}static int b_cvsignal(uint32_t*c){return pthread_cond_signal(cv_get(c));}static int b_cvbroad(uint32_t*c){return pthread_cond_broadcast(cv_get(c));}static int b_cvdes(uint32_t*s){if(*s>0xffff){pthread_cond_t*c=(void*)(uintptr_t)*s;pthread_cond_destroy(c);free(c);}*s=0;return 0;}
@@ -980,10 +1033,14 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
           static int b_strprop(const char*n,char*v){const char*x="";if(n&&!strcmp(n,"ro.build.version.sdk"))x="30";else if(n&&!strcmp(n,"ro.product.cpu.abi"))x="armeabi-v7a";if(v)memcpy(v,x,strlen(x)+1);return(int)strlen(x);}static void*propfind(const char*n){(void)n;return NULL;}static int propread(const void*p,char*n,char*v){(void)p;if(n)*n=0;if(v)*v=0;return 0;}
           static int b_regatfork(void(*p)(void),void(*c)(void),void(*d)(void)){(void)p;(void)c;(void)d;return 0;}static int b_ctype_mb(void){return 1;}
           static int b_sigempty(uint32_t*s){*s=0;return 0;}static int b_sigfill(uint32_t*s){*s=~0u;return 0;}static int b_sigadd(uint32_t*s,int n){if(n>0&&n<=32)*s|=1u<<(n-1);return 0;}static int b_sigdel(uint32_t*s,int n){if(n>0&&n<=32)*s&=~(1u<<(n-1));return 0;}static void mask_to_host(uint32_t x,sigset_t*s){int i;sigemptyset(s);for(i=0;i<32;i++)if(x&(1u<<i))sigaddset(s,i+1);}typedef struct{void*h;uint32_t mask;int flags;void*rest;}BSA;
+          /* Sinyal fatal: JANGAN izinkan game ganti handler. Handler crash bawaan Unity
+             nulis tombstone lalu crash lagi di dlm handler (stack sudah rusak) -> loop
+             ribuan kali -> log 7MB. Biar handler port yang dump + _exit sekali. */
           static int b_sigaction(int n,const void*a,void*o){struct sigaction h;const BSA*x=a;memset(&h,0,sizeof h);
            if(n==11||n==6||n==4||n==7||n==8){if(a)L("[shim] sigaction(%d) dari game ditolak (pakai handler port)\n",n);if(o)memset(o,0,sizeof(BSA));return 0;}
            if(x){h.sa_handler=x->h;h.sa_flags=x->flags;mask_to_host(x->mask,&h.sa_mask);}return sigaction(n,x?&h:NULL,NULL);}static int b_sigmask(int how,const uint32_t*x,uint32_t*o){sigset_t h,z;if(x)mask_to_host(*x,&h);sigprocmask(how,x?&h:NULL,&z);if(o){uint32_t v=0;int i;for(i=1;i<=32;i++)if(sigismember(&z,i)==1)v|=1u<<(i-1);*o=v;}return 0;}
           static int b_strcoll_l(const char*a,const char*b,void*l){(void)l;return(size_t)strcoll(a,b);}
+          /* Verified against AOSP bionic arm32: struct stat is 104 bytes and matches glibc stat64; statfs is 88 bytes and differs from glibc's 64-byte struct. Translate statfs counters before returning. */
           static int b_stat(const char*p,void*b){return stat64(p,(struct stat64*)b);}
           static int b_fstat(int fd,void*b){return fstat64(fd,(struct stat64*)b);}
           static int b_lstat(const char*p,void*b){return lstat64(p,(struct stat64*)b);}
@@ -991,6 +1048,8 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
           _Static_assert(sizeof(BStatfs32)==88,"bionic ARM32 statfs size");
           static int b_statfs(const char*p,void*out){struct statfs64 s;BStatfs32 b;int r=statfs64(p,&s);if(r)return r;memset(&b,0,sizeof b);b.type=(uint32_t)s.f_type;b.bsize=(uint32_t)s.f_bsize;b.blocks=s.f_blocks;b.bfree=s.f_bfree;b.bavail=s.f_bavail;b.files=s.f_files;b.ffree=s.f_ffree;b.fsid[0]=s.f_fsid.__val[0];b.fsid[1]=s.f_fsid.__val[1];b.namelen=(uint32_t)s.f_namelen;b.frsize=(uint32_t)s.f_frsize;b.flags=(uint32_t)s.f_flags;memcpy(out,&b,sizeof b);return 0;}
           static int b_fstatfs(int fd,void*out){struct statfs64 s;BStatfs32 b;int r=fstatfs64(fd,&s);if(r)return r;memset(&b,0,sizeof b);b.type=(uint32_t)s.f_type;b.bsize=(uint32_t)s.f_bsize;b.blocks=s.f_blocks;b.bfree=s.f_bfree;b.bavail=s.f_bavail;b.files=s.f_files;b.ffree=s.f_ffree;b.fsid[0]=s.f_fsid.__val[0];b.fsid[1]=s.f_fsid.__val[1];b.namelen=(uint32_t)s.f_namelen;b.frsize=(uint32_t)s.f_frsize;b.flags=(uint32_t)s.f_flags;memcpy(out,&b,sizeof b);return 0;}
+          /* bionic struct dirent (d_name offset 19) != glibc 32-bit (d_name offset 11) -> pakai readdir64;
+             open di bionic 64-bit (off_t) -> open64; exit/abort/raise di game biar kelihatan di log. */
           static struct dirent64 *b_readdir(DIR*d){return readdir64(d);}
           static int b_readdir_r(DIR*d,struct dirent64*e,struct dirent64**r){return readdir64_r(d,e,r);}
           static void b_exit(int c){L("[exit] game memanggil exit(%d)\n",c);fflush(NULL);_exit(c);}
@@ -999,11 +1058,13 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
           static int b_open(const char*p,int fl,...){mode_t m=0;if(fl&O_CREAT){va_list ap;va_start(ap,fl);m=(mode_t)va_arg(ap,int);va_end(ap);}return open64(p,fl,m);}
           static int b_raise(int sg){L("[raise] raise(%d)\n",sg);return raise(sg);}static void*dummy_locale(int a,const char*b,void*c){(void)a;(void)b;(void)c;return(void*)1;}static void*uselocale_dummy(void*p){(void)p;return(void*)1;}static void locale_free(void*p){(void)p;}
 
+          /* ======================= Android NDK stubs ======================= */
           static int g_looper,g_sensmgr,g_sensq;
           static void*b_window_from(void*e,void*s){(void)e;(void)s;return &g_nwin;}static int b_winw(void*w){return w?((NWin*)w)->w:640;}static int b_winh(void*w){return w?((NWin*)w)->h:480;}static int b_wingeom(void*w,int a,int b,int c){if(!w)return -1;if(a>0)((NWin*)w)->w=a;if(b>0)((NWin*)w)->h=b;((NWin*)w)->fmt=c;return 0;}static void b_winref(void*w){(void)w;}
           static void*b_looper(int o){(void)o;return &g_looper;}static void*b_looper_thread(void){return &g_looper;}static int b_poll(int t,int*f,int*e,void**d){if(f)*f=-1;if(e)*e=0;if(d)*d=NULL;if(t>0)usleep((useconds_t)(t>20?20:t)*1000);return -3;}static void b_noop(void*p){(void)p;}static int b_addfd(void*l,int f,int i,int e,void*c,void*d){(void)l;(void)f;(void)i;(void)e;(void)c;(void)d;return 1;}static int b_removefd(void*l,int f){(void)l;(void)f;return 0;}
           static void*b_sm(void){return &g_sensmgr;}static int b_sensorlist(void*m,const void***l){(void)m;if(l)*l=NULL;return 0;}static void*b_sensor(void*m,int t){(void)m;(void)t;return NULL;}static void*b_sensorq(void*m,void*l,int i,void*c,void*d){(void)m;(void)l;(void)i;(void)c;(void)d;return &g_sensq;}static int b_zero(void){return 0;}static int b_minus(void){return -1;}static float AAPCS b_sres(void*s){(void)s;return 0;}static const char*b_sstr(void*s){(void)s;return "";}
 
+          /* ======================= FP softfp -> hardfp wrappers ======================= */
           #define HF1(n) extern float h_##n(float) __asm__(#n);
           #define HD1(n) extern double h_##n(double) __asm__(#n);
           #define HF2(n) extern float h_##n(float,float) __asm__(#n);
@@ -1020,6 +1081,7 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
           WF2(powf) WF2(atan2f) WF2(fmodf) WF2(hypotf) WF2(fmaxf) WF2(fminf)
           WD1(sin) WD1(cos) WD1(tan) WD1(acos) WD1(asin) WD1(atan) WD1(sqrt) WD1(exp) WD1(log) WD1(log2) WD1(log10) WD1(floor) WD1(ceil) WD1(fabs) WD1(round) WD1(trunc) WD1(rint) WD1(cbrt) WD1(logb) WD1(tanh) WD1(exp2) WD1(sinh)
           WD2(pow) WD2(atan2) WD2(fmod) WD2(hypot) WD2(fmax) WD2(fmin)
+          /* mixed float/int and pointer-output wrappers (bionic softfp -> hardfp host) */
           extern float h_ldexpf(float,int) __asm__("ldexpf"); extern double h_ldexp(double,int) __asm__("ldexp");
           extern float h_scalbnf(float,int) __asm__("scalbnf"); extern double h_scalbn(double,int) __asm__("scalbn");
           extern float h_modff(float,float*) __asm__("modff"); extern double h_modf(double,double*) __asm__("modf");
@@ -1050,6 +1112,7 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
           AAPCS static double w_wcstod(const wchar_t*s,wchar_t**e){return h_wcstod(s,e);}
           AAPCS static float w_wcstof(const wchar_t*s,wchar_t**e){return h_wcstof(s,e);}
           AAPCS static long double w_wcstold(const wchar_t*s,wchar_t**e){return h_wcstold(s,e);}
+          /* sincos writes through a pointer; pointer args are softfp/hardfp identical (integer regs), so only the float/double scalars need pcs("aapcs") */
           extern void h_sincosf(float,float *,float *) __asm__("sincosf");
           extern void h_sincos(double,double *,double *) __asm__("sincos");
           AAPCS static void w_sincosf(float x,float *s,float *c){h_sincosf(x,s,c);}
@@ -1059,6 +1122,7 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
           AAPCS static void w_glTexParameterf(unsigned a,unsigned b,float c){typedef void(*F)(unsigned,unsigned,float);static F f;if(!f)f=(F)dlsym(h_gles,"glTexParameterf");if(f)f(a,b,c);}
           AAPCS static void w_glPolygonOffset(float a,float b){typedef void(*F)(float,float);static F f;if(!f)f=(F)dlsym(h_gles,"glPolygonOffset");if(f)f(a,b);}
           AAPCS static void w_glVertexAttrib4f(unsigned a,float b,float c,float d,float e){typedef void(*F)(unsigned,float,float,float,float);static F f;if(!f)f=(F)dlsym(h_gles,"glVertexAttrib4f");if(f)f(a,b,c,d,e);}
+          /* GL float wrappers tambahan; signatures exact supaya PCS(aapcs) valid. */
           #define GLWRAP0(name, args, typ, callargs) AAPCS static void w_##name args {typedef void(*F)typ;static F f;if(!f)f=(F)dlsym(h_gles,#name);if(f)f callargs;}
           GLWRAP0(glDepthRangef,(float a,float b),(float,float),(a,b))
           GLWRAP0(glBlendColor,(float a,float b,float c,float d),(float,float,float,float),(a,b,c,d))
@@ -1074,6 +1138,7 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
           GLWRAP0(glSamplerParameterf,(unsigned a,unsigned b,float c),(unsigned,unsigned,float),(a,b,c))
           #undef GLWRAP0
 
+          /* ======================= SDL / EGL hibrida ======================= */
           static void *sdl_h,*sdl_win,*sdl_ctx;
           static int(*p_SDL_Init)(uint32_t);static const char*(*p_SDL_GetError)(void);static int(*p_SDL_GL_SetAttribute)(int,int);static void*(*p_SDL_CreateWindow)(const char*,int,int,int,int,uint32_t);static void*(*p_SDL_GL_CreateContext)(void*);static int(*p_SDL_GL_MakeCurrent)(void*,void*);static void(*p_SDL_GL_GetDrawableSize)(void*,int*,int*);static int(*p_SDL_PollEvent)(void*);static int(*p_SDL_GL_SetSwapInterval)(int);
           static int(*p_SDL_InitSubSystem)(uint32_t);static int(*p_SDL_NumJoysticks)(void);static void*(*p_SDL_JoystickOpen)(int);static const char*(*p_SDL_JoystickNameForIndex)(int);static int(*p_SDL_IsGameController)(int);static void*(*p_SDL_GameControllerOpen)(int);static int(*p_SDL_GameControllerEventState)(int);static void*(*p_SDL_GameControllerFromInstanceID)(int);
@@ -1095,6 +1160,7 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
           static int egl_sattr(void*d,void*s,int a,int v){return r_eglSurfaceAttrib?r_eglSurfaceAttrib(d,s,a,v):0;}
           static const char*egl_qstr(void*d,int n){return r_eglQueryString?r_eglQueryString(d,n):"";}
           static int egl_err(void){return r_eglGetError?r_eglGetError():0x3000;}
+          /* EGL tambahan yang dipakai libunity: display sudah di-init SDL, jadi cukup teruskan. */
           static int egl_init(void*d,int*w,int*h){if(g_gfx.ok){if(w)*w=gfx_w;if(h)*h=gfx_h;return 1;}return r_eglInitialize?r_eglInitialize(d,w,h):0;}
           static int egl_swapint(void*d,int i){(void)d;(void)i;return 1;}
           static void*egl_cur_surf(int t){if(g_gfx.ok)return g_gfx.surf;return r_eglGetCurrentSurface?r_eglGetCurrentSurface(t):NULL;}
@@ -1127,8 +1193,11 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
            {int id=0,n=0,attrs[3]={0x3028,0,0x3038};if(r_eglGetConfigAttrib)r_eglGetConfigAttrib(g_gfx.dpy,NULL,0x3028,&id);attrs[1]=id;r_eglChooseConfig(g_gfx.dpy,attrs,&g_gfx.cfg,1,&n);if(!n||!g_gfx.cfg){g_gfx.cfg=(void*)1;}}
            p_SDL_GL_SetSwapInterval(1);p_SDL_GL_MakeCurrent(sdl_win,NULL);g_gfx.ok=1;L("[gfx] SDL2/EGL OK %dx%d dpy=%p ctx=%p surf=%p cfg=%p\n",gfx_w,gfx_h,g_gfx.dpy,g_gfx.ctx,g_gfx.surf,g_gfx.cfg);return 0;}
 
+          /* ======================= input -> MotionEvent JNI ======================= */
           static uint64_t touch_down_time;
           static void build_motion(int action,float x,float y){
+           /* State sentuhan dicatat di satu struct global; Unity membacanya lewat getter JNI
+              (getAction/getX/getY) pada objek MotionEvent palsu ini. */
            g_mev.action=action;g_mev.x=x;g_mev.y=y;g_mev.seq=++touch_seq;g_mev.tool=1;g_mev.id=0;
            g_mev.when=(uint64_t)time(NULL)*1000000ull+(uint64_t)(g_mev.seq%1000000);
            if(action==0)g_mev.down=g_mev.when;
@@ -1139,9 +1208,9 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
            Native*n=find_native("UnityPlayer","nativeInjectEvent");if(!n||!g_m2_ready||!g_unity_self)return;
            if(!motion_obj)motion_obj=mk_obj("android/view/MotionEvent");
            if(!touch_seq)touch_seq=1;
-           if(down&&!move)build_motion(0,x,y);
-           else if(move&&down)build_motion(2,x,y);
-           else if(!down&&!move)build_motion(1,x,y);
+           if(down&&!move)build_motion(0/*ACTION_DOWN*/,x,y);
+           else if(move&&down)build_motion(2/*ACTION_MOVE*/,x,y);
+           else if(!down&&!move)build_motion(1/*ACTION_UP*/,x,y);
            else return;
            ((int(*)(void*,void*,void*))n->fn)(&g_envobj,g_unity_self,motion_obj);
            g_injected++;
@@ -1149,7 +1218,7 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
           }
           static void in_open_joysticks(void){
            int i,n;if(!p_SDL_NumJoysticks||!p_SDL_InitSubSystem)return;
-           p_SDL_InitSubSystem(0x200u);
+           p_SDL_InitSubSystem(0x200u); /* SDL_INIT_JOYSTICK */
            n=p_SDL_NumJoysticks();L("[input] %d joystick(s)\n",n);
            for(i=0;i<n&&i<4;i++){const char*nm=p_SDL_JoystickNameForIndex?p_SDL_JoystickNameForIndex(i):"?";p_SDL_JoystickOpen?p_SDL_JoystickOpen(i):0;L("[input]  joy%d: %s\n",i,nm?nm:"?");}
            if(p_SDL_GameControllerEventState)p_SDL_GameControllerEventState(1);
@@ -1164,10 +1233,15 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
            }if(g_touch_down)send_touch(1,g_cur_x,g_cur_y,1);
            if(g_cur_x<0)g_cur_x=0;if(g_cur_x>gfx_w-1)g_cur_x=gfx_w-1;if(g_cur_y<0)g_cur_y=0;if(g_cur_y>gfx_h-1)g_cur_y=gfx_h-1;}
 
+          /* ======================= shim map & host resolver ======================= */
+          /* pthread_attr_t bionic cuma 24 byte, glibc 36 byte. pthread_getattr_np dan
+             pthread_attr_get* milik glibc yang dipanggil langsung oleh game menulis
+             36 byte ke struct 24-byte milik game -> menimpa 12 byte di sebelahnya ->
+             heap/stack rusak. Maka attr dipegang sebagai pointer ke struct glibc di heap
+             (sama seperti pthread_attr_init) dan semua fungsi attr dialihkan lewat pointer. */
           static pthread_attr_t*ap_(uint32_t*s){return(*s>0xffffu)?(pthread_attr_t*)(uintptr_t)*s:NULL;}
           static int b_getattr_np(pthread_t t,uint32_t*s){pthread_attr_t*a=calloc(1,sizeof*a);int r;if(!a)return 12;r=pthread_getattr_np(t,a);if(r){free(a);return r;}*s=U32(a);return 0;}
-          static int b_setname_np(uint32_t t,const char*n){static int c=0;if(c++<3)L("[shim] pthread_setname_np(0x%x,\"%s\") diabaikan\n",(unsigned)t,n?n:"(null)");return 0;}
-          static int b_getname_np(uint32_t t,char*n,size_t z){(void)t;if(n&&z)n[0]=0;return 0;}
+          static int b_setname_np(uint32_t t,const char*n){(void)t;(void)n;return 0;}static int b_getname_np(uint32_t t,char*n,size_t z){(void)t;if(n&&z)n[0]=0;return 0;}
           static int b_attr_getstack(uint32_t*s,void**ad,size_t*sz){pthread_attr_t*a=ap_(s);return a?pthread_attr_getstack(a,ad,sz):22;}
           static int b_attr_getstacksize(uint32_t*s,size_t*sz){pthread_attr_t*a=ap_(s);return a?pthread_attr_getstacksize(a,sz):22;}
           static int b_attr_getguardsize(uint32_t*s,size_t*sz){pthread_attr_t*a=ap_(s);return a?pthread_attr_getguardsize(a,sz):22;}
@@ -1188,7 +1262,7 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
            {"sem_init",(void*)b_sem_init},{"sem_wait",(void*)b_sem_wait},{"sem_trywait",(void*)b_sem_trywait},{"sem_post",(void*)b_sem_post},{"sem_destroy",(void*)b_sem_des},{"sem_getvalue",(void*)b_sem_get},
            {"sigaction",(void*)b_sigaction},{"sigprocmask",(void*)b_sigmask},{"pthread_sigmask",(void*)b_sigmask},{"sigemptyset",(void*)b_sigempty},{"sigfillset",(void*)b_sigfill},{"sigaddset",(void*)b_sigadd},{"sigdelset",(void*)b_sigdel},{"sigsuspend",(void*)b_sig_suspend},{"sigaltstack",(void*)b_sig_alt},{"setjmp",(void*)b_setjmp},{"_setjmp",(void*)b_setjmp},{"sigsetjmp",(void*)b_setjmp},{"__sigsetjmp",(void*)b_setjmp},{"longjmp",(void*)b_longjmp},{"_longjmp",(void*)b_longjmp},{"siglongjmp",(void*)b_longjmp},
            {"dlopen",(void*)b_dlopen},{"dlsym",(void*)b_dlsym},{"dlclose",(void*)b_dlclose},{"dlerror",(void*)b_dlerror},{"dladdr",(void*)b_dladdr},{"dl_iterate_phdr",(void*)b_dl_iterate_phdr},{"dl_unwind_find_exidx",(void*)b_dl_unwind_find_exidx},
-           {"newlocale",(void*)b_newlocale},{"uselocale",(void*)b_locale_noop},{"freelocale",(void*)b_locale_noop},{"localeconv",(void*)b_locale_noop},{"setlocale",(void*)b_locale_set},{"strcoll_l",(void*)b_strcoll_l},{"strxfrm_l",(void*)b_strcoll_l},{"wcscoll_l",(void*)b_strcoll_l},{"wcsxfrm_l",(void*)b_strcoll_l},{"iswspace_l",(void*)b_isw_l},{"iswprint_l",(void*)b_isw_l},{"iswcntrl_l",(void*)b_isw_l},{"iswupper_l",(void*)b_isw_l},{"iswlower_l",(void*)b_isw_l},{"iswalpha_l",(void*)b_isw_l},{"iswdigit_l",(void*)b_isw_l},{"iswxdigit_l",(void*)b_isw_l},{"iswpunct_l",(void*)b_isw_l},{"iswblank_l",(void*)b_isw_l},{"towupper_l",(void*)b_isw_l},{"towlower_l",(void*)b_isw_l},{"strtoll_l",(void*)b_strtoll_l},{"strtoull_l",(void*)b_strtoull_l},{"strtold_l",(void*)b_strtold_l},{"strftime_l",(void*)b_strtoll_l},
+           {"newlocale",(void*)b_newlocale},{"uselocale",(void*)b_locale_noop},{"freelocale",(void*)b_locale_noop},{"localeconv",(void*)b_locale_noop},{"setlocale",(void*)b_locale_set},{"strcoll_l",(void*)b_strcoll_l},{"strxfrm_l",(void*)b_strcoll_l},{"wcscoll_l",(void*)b_strcoll_l},{"wcsxfrm_l",(void*)b_strcoll_l},{"iswspace_l",(void*)b_isw_l},{"iswprint_l",(void*)b_isw_l},{"iswcntrl_l",(void*)b_isw_l},{"iswupper_l",(void*)b_isw_l},{"iswlower_l",(void*)b_isw_l},{"iswalpha_l",(void*)b_isw_l},{"iswdigit_l",(void*)b_isw_l},{"iswxdigit_l",(void*)b_isw_l},{"iswpunct_l",(void*)b_isw_l},{"iswblank_l",(void*)b_isw_l},{"towupper_l",(void*)b_isw_l},{"towlower_l",(void*)b_isw_l},{"strtoll_l",(void*)b_strtoll_l},{"strtoull_l",(void*)b_strtoll_l},{"strtold_l",(void*)b_strtoll_l},{"strftime_l",(void*)b_strtoll_l},
            {"__FD_SET_chk",(void*)b_fdset},{"__FD_CLR_chk",(void*)b_fdclr},{"__FD_ISSET_chk",(void*)b_fdisset},{"strlcpy",(void*)b_strlcpy},{"strlcat",(void*)b_strlcat},{"__strlcpy_chk",(void*)b_strlcpy_chk},{"__strlcat_chk",(void*)b_strlcat_chk},
            {"ANativeWindow_fromSurface",(void*)b_window_from},{"ANativeWindow_getWidth",(void*)b_winw},{"ANativeWindow_getHeight",(void*)b_winh},{"ANativeWindow_setBuffersGeometry",(void*)b_wingeom},{"ANativeWindow_acquire",(void*)b_winref},{"ANativeWindow_release",(void*)b_winref},{"ALooper_prepare",(void*)b_looper},{"ALooper_forThread",(void*)b_looper_thread},{"ALooper_pollOnce",(void*)b_poll},{"ALooper_pollAll",(void*)b_poll},{"ALooper_addFd",(void*)b_addfd},{"ALooper_removeFd",(void*)b_removefd},{"ALooper_wake",(void*)b_noop},{"ALooper_acquire",(void*)b_noop},{"ALooper_release",(void*)b_noop},
            {"ASensorManager_getInstance",(void*)b_sm},{"ASensorManager_getInstanceForPackage",(void*)b_sm},{"ASensorManager_getSensorList",(void*)b_sensorlist},{"ASensorManager_getDefaultSensor",(void*)b_sensor},{"ASensorManager_createEventQueue",(void*)b_sensorq},{"ASensorManager_destroyEventQueue",(void*)b_zero},{"ASensorEventQueue_enableSensor",(void*)b_minus},{"ASensorEventQueue_disableSensor",(void*)b_minus},{"ASensorEventQueue_setEventRate",(void*)b_minus},{"ASensorEventQueue_hasEvents",(void*)b_zero},{"ASensorEventQueue_getEvents",(void*)b_zero},{"ASensor_getType",(void*)b_zero},{"ASensor_getResolution",(void*)b_sres},{"ASensor_getMinDelay",(void*)b_zero},{"ASensor_getName",(void*)b_sstr},{"ASensor_getVendor",(void*)b_sstr},
@@ -1200,11 +1274,13 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
           {"glDepthRangef",(void*)w_glDepthRangef},{"glBlendColor",(void*)w_glBlendColor},{"glLineWidth",(void*)w_glLineWidth},{"glSampleCoverage",(void*)w_glSampleCoverage},{"glUniform1f",(void*)w_glUniform1f},{"glUniform2f",(void*)w_glUniform2f},{"glUniform3f",(void*)w_glUniform3f},{"glUniform4f",(void*)w_glUniform4f},{"glVertexAttrib1f",(void*)w_glVertexAttrib1f},{"glVertexAttrib2f",(void*)w_glVertexAttrib2f},{"glVertexAttrib3f",(void*)w_glVertexAttrib3f},{"glSamplerParameterf",(void*)w_glSamplerParameterf},
            {NULL,NULL}};
 
+          /* ======================= ELF loader ======================= */
           static int read_file(const char*p,uint8_t**b,size_t*n){FILE*f=fopen(p,"rb");long z;if(!f)return-1;fseek(f,0,SEEK_END);z=ftell(f);fseek(f,0,SEEK_SET);if(z<=0){fclose(f);return-1;}*b=malloc((size_t)z);if(!*b||fread(*b,1,(size_t)z,f)!=(size_t)z){fclose(f);return-1;}fclose(f);*n=(size_t)z;return 0;}
           static int load_mod(const char*d,const char*n,Mod**out){char p[512];Mod*m;const Elf32_Ehdr*eh;const Elf32_Phdr*ph;uint32_t lo=0xffffffffu,hi=0;int i,found=0;if(nmods>=MAXMOD)return-1;m=&mods[nmods];memset(m,0,sizeof*m);snprintf(m->name,sizeof m->name,"%s",n);snprintf(p,sizeof p,"%s/%s",d,n);if(read_file(p,&m->file,&m->fsize))return-1;eh=(void*)m->file;if(memcmp(eh->e_ident,ELFMAG,SELFMAG)||eh->e_ident[EI_CLASS]!=ELFCLASS32||eh->e_machine!=EM_ARM||eh->e_type!=ET_DYN){L("%s bukan ELF ARM32\n",n);return-1;}ph=(void*)(m->file+eh->e_phoff);m->ph=ph;m->nph=eh->e_phnum;for(i=0;i<eh->e_phnum;i++)if(ph[i].p_type==PT_LOAD){if(ph[i].p_vaddr<lo)lo=ph[i].p_vaddr;if(ph[i].p_vaddr+ph[i].p_memsz>hi)hi=ph[i].p_vaddr+ph[i].p_memsz;}lo&=~(PAGE-1);hi=(hi+PAGE-1)&~(PAGE-1);m->span=hi-lo;m->base=mmap(NULL,m->span,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);if(m->base==MAP_FAILED)return-1;m->bias=(uintptr_t)m->base-lo;for(i=0;i<eh->e_phnum;i++){if(ph[i].p_type==PT_LOAD)memcpy((void*)(m->bias+ph[i].p_vaddr),m->file+ph[i].p_offset,ph[i].p_filesz);if(ph[i].p_type==PT_ARM_EXIDX){m->exidx=ph[i].p_vaddr;m->exidx_sz=ph[i].p_memsz;}if(ph[i].p_type==PT_TLS)m->ntls++;if(ph[i].p_type==PT_DYNAMIC){Elf32_Dyn*x=(void*)(m->bias+ph[i].p_vaddr);found=1;for(;x->d_tag!=DT_NULL;x++)switch(x->d_tag){case DT_SYMTAB:m->sym=(void*)(m->bias+x->d_un.d_ptr);break;case DT_STRTAB:m->str=(void*)(m->bias+x->d_un.d_ptr);break;case DT_REL:m->rel=(void*)(m->bias+x->d_un.d_ptr);break;case DT_RELSZ:m->nrel=x->d_un.d_val/sizeof(Elf32_Rel);break;case DT_JMPREL:m->jrel=(void*)(m->bias+x->d_un.d_ptr);break;case DT_PLTRELSZ:m->njrel=x->d_un.d_val/sizeof(Elf32_Rel);break;case DT_INIT:m->init=x->d_un.d_val;break;case DT_INIT_ARRAY:m->iarr=(void*)(m->bias+x->d_un.d_ptr);break;case DT_INIT_ARRAYSZ:m->niarr=x->d_un.d_val/4;break;case DT_RELA:case 0x6000000f:case 0x60000011:case 36:L("unsupported dynamic tag %u\n",(unsigned)x->d_tag);return-1;default:break;}}}if(!found||!m->sym||!m->str)return-1;if(eh->e_shoff){Elf32_Shdr*sh=(void*)(m->file+eh->e_shoff);for(i=0;i<eh->e_shnum;i++)if(sh[i].sh_type==SHT_DYNSYM)m->nsym=sh[i].sh_size/sizeof(Elf32_Sym);}if(m->nsym<=0)return-1;nmods++;*out=m;L("[load] %s base=%p span=0x%zx rel=%u plt=%u init=%u exidx=%u\n",n,m->base,m->span,m->nrel,m->njrel,m->niarr,m->exidx_sz);return 0;}
           static Mod*mod_of(uintptr_t a){int i;for(i=0;i<nmods;i++)if(a>=(uintptr_t)mods[i].base&&a<(uintptr_t)mods[i].base+mods[i].span)return &mods[i];return NULL;}static Mod*mod_find_name(const char*n){int i;for(i=0;i<nmods;i++)if(!strcmp(mods[i].name,n))return &mods[i];return NULL;}static void*mod_find(const Mod*m,const char*n){int i;for(i=1;i<m->nsym;i++){Elf32_Sym*s=&m->sym[i];if(s->st_shndx!=SHN_UNDEF&&s->st_name&&!strcmp(m->str+s->st_name,n))return(void*)(m->bias+s->st_value);}return NULL;}
           static int b_dl_iterate_phdr(int(*cb)(struct dl_phdr_info*,size_t,void*),void*d){int i,r;for(i=0;i<nmods;i++){struct dl_phdr_info x;memset(&x,0,sizeof x);x.dlpi_addr=mods[i].bias;x.dlpi_name=mods[i].name;x.dlpi_phdr=mods[i].ph;x.dlpi_phnum=mods[i].nph;r=cb(&x,sizeof x,d);if(r)return r;}return dl_iterate_phdr(cb,d);}static void*b_dl_unwind_find_exidx(uintptr_t pc,int*n){Mod*m=mod_of(pc);if(!m){if(n)*n=0;return NULL;}if(n)*n=(int)(m->exidx_sz/8);return(void*)(m->bias+m->exidx);}static void*b_dladdr(void*a,void*i){Dl_info*d=i;memset(d,0,sizeof*d);return(void*)(uintptr_t)dladdr(a,d);}
           static Mod*handle_to_mod(void*h){int i;for(i=0;i<nmods;i++)if(h==(void*)&mods[i])return &mods[i];return NULL;}
+          /* Handle "utama" untuk dlopen(NULL) -> libmain.so yang sudah dimuat. */
           static void*g_main_h;
           static void*b_dlopen(const char*p,int f){
            const char*b;Mod*m;
@@ -1219,6 +1295,7 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
            return dlopen(p,f?f:RTLD_LAZY);}
           static void*b_dlsym(void*h,const char*n){Mod*m;void*p;
            if(!h||h==RTLD_DEFAULT||h==(void*)-1||h==(void*)-2||h==g_main_h){
+            /* pencarian global: modul game dulu, baru shim, baru host */
             int i;for(i=0;i<nmods;i++)if((p=mod_find(&mods[i],n)))return p;
             for(i=0;shim[i].n;i++)if(!strcmp(shim[i].n,n))return shim[i].p;
             if(h_gles&&(p=dlsym(h_gles,n)))return p;
@@ -1227,6 +1304,7 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
            if(h==h_gles){int i;for(i=0;shim[i].n;i++)if(!strcmp(shim[i].n,n))return shim[i].p;return dlsym(h_gles,n);}
            m=handle_to_mod(h);
            if(m){void*r=mod_find(m,n);if(r)return r;
+            /* modul spesifik tidak punya simbol ini -> cari di modul game lain (mis. unity minta il2cpp_*) */
             {int i;for(i=0;i<nmods;i++)if(&mods[i]!=m&&(r=mod_find(&mods[i],n))){L("[shim] dlsym(%s, \"%s\") -> dari modul lain (%s)\n",m->name,n,mods[i].name);return r;}}
             return NULL;}
            return dlsym(h,n);}
@@ -1238,12 +1316,16 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
 
           static int j_Register(void*e,void*c,const NativeMethod*m,int n){int i;(void)e;for(i=0;i<n&&g_nnat<1400;i++){Native*x=&g_natives[g_nnat++];snprintf(x->cls,sizeof x->cls,"%s",h2s(c));snprintf(x->name,sizeof x->name,"%s",m[i].name);snprintf(x->sig,sizeof x->sig,"%s",m[i].sig);x->fn=m[i].fn;x->mod=mod_of((uintptr_t)m[i].fn);}L("[JNI] RegisterNatives(%s, %d)\n",h2s(c),n);return 0;}
           static void init_jni_table(void){int i;for(i=0;i<256;i++)g_jni_table[i]=jstubs[i];g_jni_table[4]=j_GetVersion;g_jni_table[6]=j_FindClass;g_jni_table[27]=j_AllocObject;g_jni_table[28]=j_NewObject;g_jni_table[29]=j_NewObjectV;g_jni_table[30]=j_NewObjectA;g_jni_table[31]=j_GetObjectClass;g_jni_table[33]=j_GetMethodID;SETFAM(34,Object);SETFAM(37,Boolean);SETFAM(49,Int);SETFAM(52,Long);SETFAM(55,Float);SETFAM(58,Double);SETFAM(61,Void);g_jni_table[94]=j_GetFieldID;g_jni_table[113]=j_GetStaticMethodID;g_jni_table[144]=j_GetFieldID;g_jni_table[167]=j_NewStringUTF;g_jni_table[168]=j_GetStringUTFLength;g_jni_table[169]=j_GetStringUTFChars;g_jni_table[170]=j_ReleaseStringUTFChars;g_jni_table[215]=j_Register;g_jni_table[219]=j_GetJavaVM;g_jni_table[228]=j_ExceptionCheck;g_jni_table[18]=j_FatalError;
+          /* JNI refs & exception, index JNI asli. Stub bawaan return NULL -> objek Java jadi NULL -> crash native. */
           g_jni_table[13]=j_zero1;g_jni_table[15]=j_exc;g_jni_table[16]=j_noop2;g_jni_table[17]=j_noop2;g_jni_table[19]=j_pushframe;g_jni_table[20]=j_popframe;g_jni_table[21]=j_same;g_jni_table[22]=j_noop2;g_jni_table[23]=j_noop2;g_jni_table[24]=j_same_q;g_jni_table[25]=j_same;g_jni_table[26]=j_zero1;
+          /* string UTF-16 + field + array */
           g_jni_table[163]=j_NewString;g_jni_table[164]=j_GetStringLength;g_jni_table[165]=j_GetStringChars;g_jni_table[166]=j_ReleaseStringChars;
           g_jni_table[95]=j_GetObjectField;g_jni_table[96]=j_GetBooleanField;g_jni_table[100]=j_GetIntField;g_jni_table[101]=j_GetLongField;g_jni_table[102]=j_GetFloatField;g_jni_table[103]=j_GetDoubleField;
+          /* static field (Build.*) + IsInstanceOf + monitor/weak-globalref */
           g_jni_table[145]=j_GetStaticObjectField;g_jni_table[150]=j_GetStaticIntField;g_jni_table[32]=j_inst;
           g_jni_table[217]=j_mon_zero;g_jni_table[218]=j_mon_zero;g_jni_table[226]=j_weak_ident;g_jni_table[227]=j_mon_noop;g_jni_table[229]=j_NewDirectByteBuffer;g_jni_table[230]=j_GetDirectBufferAddress;g_jni_table[231]=j_GetDirectBufferCapacity;g_jni_table[232]=j_mon_zero;
           g_jni_table[171]=j_GetArrayLength;g_jni_table[172]=j_NewObjectArray;g_jni_table[173]=j_GetObjectArrayElement;g_jni_table[174]=j_SetObjectArrayElement;
+          /* primitive arrays (byte[] untuk InputStream.read, int[]/float[] untuk Unity) */
           g_jni_table[175]=j_NewBooleanArray;g_jni_table[176]=j_NewByteArray;g_jni_table[177]=j_NewCharArray;g_jni_table[178]=j_NewShortArray;g_jni_table[179]=j_NewIntArray;g_jni_table[180]=j_NewLongArray;g_jni_table[181]=j_NewFloatArray;g_jni_table[182]=j_NewDoubleArray;
           g_jni_table[183]=j_GetByteArrayElements;g_jni_table[191]=j_ReleaseByteArrayElements;g_jni_table[199]=j_GetByteArrayRegion;g_jni_table[200]=j_SetByteArrayRegion;
           g_vm_table[3]=vm_Destroy;g_vm_table[4]=vm_Attach;g_vm_table[6]=vm_GetEnv;g_vm_table[7]=vm_Attach;}
@@ -1259,17 +1341,22 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
            L("host: z=%s GLESv2=%s EGL=%s\n",h_z?"ok":"TIDAK ADA",h_gles?"ok":"TIDAK ADA",h_egl?"ok":"TIDAK ADA");
           }
 
+          /* ======================= Unity thread + render loop ======================= */
           typedef void(*nfn)(void*,void*,...);
           static void*unity_thread(void*arg){Native*ni,*nr,*nc,*nf,*nrender;void*env=&g_envobj;void*self=mk_obj("com/unity3d/player/UnityPlayer");void*ctx=mk_obj("android/app/Activity");void*surf=mk_obj("android/view/Surface");unsigned long frames=0;struct timespec a,b;(void)arg;g_unity_self=self;pthread_setname_np(pthread_self(),"UnityMain");
            {stack_t ss;ss.ss_sp=malloc(1u<<17);ss.ss_size=1u<<17;ss.ss_flags=0;if(ss.ss_sp)sigaltstack(&ss,NULL);}
            ni=find_native("UnityPlayer","initJni");nr=find_native("UnityPlayerForActivityOrService","nativeRecreateGfxState");nc=find_native("UnityPlayerForActivityOrService","nativeSendSurfaceChangedEvent");nf=find_native("UnityPlayerForActivityOrService","nativeResume");nrender=find_native("UnityPlayerForActivityOrService","nativeRender");if(!ni||!nr||!nf||!nrender){L("[m2] Unity native entrypoints missing init=%p recreate=%p resume=%p render=%p\n",ni,nr,nf,nrender);g_m2_done=1;return NULL;}
            L("[m2] UnityPlayer.initJni(context, 0)\n");((nfn)ni->fn)(env,self,ctx,0);L("[m2] nativeRecreateGfxState(0,surface)\n");((nfn)nr->fn)(env,self,0,surf);if(nc)((nfn)nc->fn)(env,self);L("[m2] nativeResume()\n");((nfn)nf->fn)(env,self);{Native*focus=find_native("UnityPlayerForActivityOrService","nativeFocusChanged");if(focus)((nfn)focus->fn)(env,self,1);}g_m2_ready=1;clock_gettime(CLOCK_MONOTONIC,&a);while(!g_m2_done&&frames<(unsigned long)g_frames_target){int r=((uint8_t(*)(void*,void*))nrender->fn)(env,self)&0xff;frames++;g_m2_frames=frames;if(frames==1){alarm(0);L("[watchdog] nativeRender mulai -> timer dibatalkan\n");}if(frames<4||frames%120==0)L("[m2] nativeRender %lu -> %d swap=%lu\n",frames,r,g_gfx.swaps);if(!r){L("[m2] nativeRender false\n");break;}poll_events(1.f/(float)g_fps);if(g_fps==30)usleep(10000);}clock_gettime(CLOCK_MONOTONIC,&b);L("[m2] render ended frames=%lu swaps=%lu elapsed=%ld.%03ld\n",frames,g_gfx.swaps,(long)(b.tv_sec-a.tv_sec),(long)((b.tv_nsec-a.tv_nsec)/1000000));g_m2_done=1;return NULL;}
           static void m2_run(void){pthread_t t;pthread_attr_t at;if(gfx_setup()!=0){L("[m2] gfx_setup gagal; berhenti sebelum game start\n");return;}
+           /* IL2CPP init butuh stack dalam; default pthread bisa kurang -> SEGV_ACCERR stack overflow. */
            pthread_attr_init(&at);pthread_attr_setstacksize(&at,8u<<20);
            if(pthread_create(&t,&at,unity_thread,NULL)){L("[m2] pthread_create UnityMain gagal\n");pthread_attr_destroy(&at);return;}pthread_attr_destroy(&at);in_open_joysticks();
+           /* Detak: kalau nativeRender/eglSwapBuffers tidak maju berarti Unity macet (mis. menunggu callback Choreographer).
+              Setelah --stall detik tanpa progres -> berhenti sendiri supaya tidak hang selamanya. */
            {int waited=0,stall_s=0;unsigned long last_fr=g_m2_frames,last_sw=g_gfx.swaps;const int stall_max=(g_timeout>0?g_timeout:180)/2;int warmup=0;
             while(!g_m2_done){poll_events(1.f/(float)g_fps);usleep(10000);waited++;
              if(waited%100==0){
+              /* Fase warm-up: Unity masih memuat asset, nativeRender belum jalan -> jangan dianggap macet. */
               if(g_m2_frames==0){if(++warmup>=12){L("[m2] 120 detik tanpa nativeRender sama sekali -> Unity tidak pernah mulai render\n");g_m2_done=1;break;}L("[m2] memuat... %d dtk (nativeRender belum jalan)\n",waited/100);continue;}
               {int no_prog=(g_m2_frames==last_fr&&g_gfx.swaps==last_sw);last_fr=g_m2_frames;last_sw=g_gfx.swaps;
                if(no_prog)stall_s++;else stall_s=0;
@@ -1280,6 +1367,7 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
 
           static void on_sig(int s,siginfo_t*i,void*c){ucontext_t*u=c;uintptr_t pc=0,lr=0,sp=0;int k;
            static volatile int in_sig=0;
+           /* Kalau handler kita sendiri crash (stack rusak), jangan ulangi -> exit langsung. */
            if(in_sig){write(2,"\n[port] crash handler gagal, keluar paksa\n",36);_exit(139);}
            in_sig=1;
           #if defined(__arm__)
@@ -1294,10 +1382,11 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
           L("  r6=%08lx r7=%08lx r8=%08lx r9=%08lx r10=%08lx fp=%08lx ip=%08lx\n",(unsigned long)u->uc_mcontext.arm_r6,(unsigned long)u->uc_mcontext.arm_r7,(unsigned long)u->uc_mcontext.arm_r8,(unsigned long)u->uc_mcontext.arm_r9,(unsigned long)u->uc_mcontext.arm_r10,(unsigned long)u->uc_mcontext.arm_fp,(unsigned long)u->uc_mcontext.arm_ip);
           #endif
           L("  [panggilan JNI terakhir]\n");for(k=0;k<8;k++){unsigned q=(g_jr_i+8+(unsigned)k)&15u;if(g_jr_n[q])L("   %s arg=%p\n",g_jr_n[q],g_jr_p[q]);}
-           {Dl_info di;Mod*ml=mod_of(lr);
-             if(!mod_of(pc)){if(dladdr((void*)pc,&di))L("  pc host: %s %s+0x%lx\n",di.dli_fname?di.dli_fname:"?",di.dli_sname?di.dli_sname:"?",(unsigned long)(pc-(uintptr_t)di.dli_saddr));else L("  pc host: (tak dikenal)\n");}
-             if(ml)L("  lr in %s+0x%lx  (objdump: --start-address=0x%lx)\n",ml->name,(unsigned long)(lr-ml->bias),(unsigned long)((lr-ml->bias)&~0xfUL)-0x20);}
-           if(sp>0x10000&&sp<0xffff0000u){int pr=0;int nscan=(int)((((sp|0xfffu)+1u)-sp)/4u);if(nscan>400)nscan=400;L("  stack scan:\n");for(k=0;k<nscan&&pr<30;k++){uintptr_t v=((uintptr_t*)sp)[k];Mod*m=mod_of(v);if(m){L("   sp+%03d: %08lx %s+0x%lx\n",k*4,(unsigned long)v,m->name,(unsigned long)(v-(uintptr_t)m->base));pr++;}}}
+          /* Simbol: cari nama fungsi terdekat di symtab modul game utk pc/lr -> jauh lebih berguna dr "libunity+0x41705f" */
+           {int q;for(q=0;q<nmods;q++){Mod*m=&mods[q];uint32_t best=0;const char*bn=NULL;int bi;for(bi=1;bi<m->nsym;bi++){Elf32_Sym*s=&m->sym[bi];uint32_t v;if(s->st_shndx==SHN_UNDEF||!s->st_name||!s->st_size)continue;v=(uint32_t)(m->bias+s->st_value);if(v<=pc&&v>best){best=v;bn=m->str+s->st_name;}}
+             if(bn){L("  pc ~ %s(%s+0x%lx)\n",bn,m->name,(unsigned long)(pc-best));break;}}}
+           /* stack scan: nilai return-address di stack -> modul+ofs, bantu tunjuk frame pemicu abort */
+           if(sp>0x10000&&sp<0xffff0000u){int pr=0;L("  stack scan:\n");for(k=0;k<400&&pr<30;k++){uintptr_t v=((uintptr_t*)sp)[k];Mod*m=mod_of(v);if(m){L("   sp+%03d: %08lx %s+0x%lx\n",k*4,(unsigned long)v,m->name,(unsigned long)(v-(uintptr_t)m->base));pr++;}}}
            fflush(NULL);_exit(128+s);}
           static void*sigwatch(void*arg){static const int sigs[]={SIGILL,SIGTRAP,SIGABRT,SIGBUS,SIGFPE,SIGSEGV};struct sigaction cur,sa;int k;(void)arg;{stack_t ss;ss.ss_sp=malloc(1u<<16);ss.ss_size=1u<<16;ss.ss_flags=0;if(ss.ss_sp)sigaltstack(&ss,NULL);}for(;;){for(k=0;k<(int)(sizeof sigs/sizeof sigs[0]);k++){memset(&cur,0,sizeof cur);if(sigaction(sigs[k],NULL,&cur)==0&&(cur.sa_sigaction!=on_sig||!(cur.sa_flags&SA_SIGINFO))){L("[sigwatch] handler signal %d changed -> reinstall port handler\n",sigs[k]);memset(&sa,0,sizeof sa);sa.sa_sigaction=on_sig;sa.sa_flags=SA_SIGINFO|SA_ONSTACK;sigemptyset(&sa.sa_mask);sigaction(sigs[k],&sa,NULL);}}usleep(20000);}return NULL;}
           static void alarm_handler(int s){(void)s;L("[watchdog] timeout\n");_exit(4);}
@@ -1321,6 +1410,7 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
         run: |
           cat > out/letmeeat/LetMeEatM2.sh <<'EOF_SH'
           #!/bin/bash
+          # Let Me Eat M2 loader (armhf): shim bionic + SDL2/EGL bridge + boot Unity + render loop.
           XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
           if [ -d "/opt/system/Tools/PortMaster/" ]; then controlfolder="/opt/system/Tools/PortMaster"
           elif [ -d "/opt/tools/PortMaster/" ]; then controlfolder="/opt/tools/PortMaster"
@@ -1345,7 +1435,7 @@ static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return
           [ -d "$ASSETDIR" ] || ASSETDIR="."
           export LD_LIBRARY_PATH="/usr/lib32:/lib32:${LD_LIBRARY_PATH}"
           chmod +x ./letmeeatloader 2>/dev/null
-          rm -f m2_log.txt m1_log.txt m2_stdout.txt
+          rm -f m2_log.txt m1_log.txt
           echo "GAMEDIR=$GAMEDIR libdir=$LIBDIR assets=$ASSETDIR" > m2_stdout.txt
           if [ ! -f "$LIBDIR/libunity.so" ] || [ ! -f "$LIBDIR/libil2cpp.so" ] || [ ! -f "$LIBDIR/libmain.so" ]; then
             echo "libmain.so/libunity.so/libil2cpp.so tidak ada di $GAMEDIR/$LIBDIR" >> m2_stdout.txt
