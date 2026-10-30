@@ -1233,6 +1233,18 @@ jobs:
            if(g_cur_x<0)g_cur_x=0;if(g_cur_x>gfx_w-1)g_cur_x=gfx_w-1;if(g_cur_y<0)g_cur_y=0;if(g_cur_y>gfx_h-1)g_cur_y=gfx_h-1;}
 
           /* ======================= shim map & host resolver ======================= */
+          /* pthread_attr_t Bionic cuma 24 byte, glibc 36 byte. pthread_getattr_np/attr_get* milik glibc yang dipanggil langsung oleh game
+           * menulis 12 byte melewati struct milik game (menimpa data di sebelahnya -> heap/stack rusak). Maka attr dipegang sebagai pointer
+           * ke struct glibc di heap (sama seperti pthread_attr_init) dan semua fungsi attr dialihkan lewat pointer itu. */
+          static pthread_attr_t*ap_(uint32_t*s){return(*s>0xffffu)?(pthread_attr_t*)(uintptr_t)*s:NULL;}
+          static int b_getattr_np(pthread_t t,uint32_t*s){pthread_attr_t*a=calloc(1,sizeof*a);int r;if(!a)return 12;r=pthread_getattr_np(t,a);if(r){free(a);return r;}*s=U32(a);return 0;}
+          static int b_attr_getstack(uint32_t*s,void**ad,size_t*sz){pthread_attr_t*a=ap_(s);return a?pthread_attr_getstack(a,ad,sz):22;}
+          static int b_attr_getstacksize(uint32_t*s,size_t*sz){pthread_attr_t*a=ap_(s);return a?pthread_attr_getstacksize(a,sz):22;}
+          static int b_attr_getguardsize(uint32_t*s,size_t*sz){pthread_attr_t*a=ap_(s);return a?pthread_attr_getguardsize(a,sz):22;}
+          static int b_attr_setguardsize(uint32_t*s,size_t sz){pthread_attr_t*a=ap_(s);return a?pthread_attr_setguardsize(a,sz):22;}
+          static int b_attr_getdetach(uint32_t*s,int*d){pthread_attr_t*a=ap_(s);return a?pthread_attr_getdetachstate(a,d):22;}
+          static int b_attr_setstack(uint32_t*s,void*ad,size_t sz){pthread_attr_t*a=ap_(s);return a?pthread_attr_setstack(a,ad,sz):22;}
+          static int b_attr_noop(uint32_t*s,...){(void)s;return 0;}
           typedef struct{const char*n;void*p;}Shim;
           static const Shim shim[]={
            {"__errno",(void*)b_errno_ptr},{"__sF",bionic_sF},{"__stack_chk_guard",&b_stack_chk_guard},{"__register_atfork",(void*)b_regatfork},{"__android_log_print",(void*)b_log_print},{"__android_log_vprint",(void*)b_log_vprint},{"__android_log_write",(void*)b_log_write},{"__assert2",(void*)b_assert2},{"__aeabi_atexit",(void*)b_atexit},{"android_set_abort_message",(void*)b_abort_msg},{"android_get_device_api_level",(void*)b_android_api},
@@ -1241,7 +1253,7 @@ jobs:
            {"readdir",(void*)b_readdir},{"readdir_r",(void*)b_readdir_r},{"open",(void*)b_open},{"open64",(void*)b_open},{"exit",(void*)b_exit},{"_exit",(void*)b_exit},{"_Exit",(void*)b_exit},{"abort",(void*)b_abort_},{"kill",(void*)b_kill},{"raise",(void*)b_raise},
            {"pthread_mutex_init",(void*)b_mxinit},{"pthread_mutex_destroy",(void*)b_mxdestroy},{"pthread_mutex_lock",(void*)b_mxlock},{"pthread_mutex_unlock",(void*)b_mxunlock},{"pthread_mutex_trylock",(void*)b_mxtry},{"pthread_mutexattr_init",(void*)b_mutexattr_init},{"pthread_mutexattr_settype",(void*)b_mutexattr_settype},{"pthread_mutexattr_gettype",(void*)b_mutexattr_gettype},{"pthread_mutexattr_destroy",(void*)b_mutexattr_destroy},
            {"pthread_cond_init",(void*)b_cvinit},{"pthread_cond_wait",(void*)b_cvwait},{"pthread_cond_timedwait",(void*)b_cvtimed},{"pthread_cond_signal",(void*)b_cvsignal},{"pthread_cond_broadcast",(void*)b_cvbroad},{"pthread_cond_destroy",(void*)b_cvdes},{"pthread_condattr_init",(void*)b_condattr_init},{"pthread_condattr_destroy",(void*)b_condattr_destroy},
-           {"pthread_attr_init",(void*)b_attrinit},{"pthread_attr_destroy",(void*)b_attrdes},{"pthread_attr_setstacksize",(void*)b_attrstack},{"pthread_attr_setdetachstate",(void*)b_attr_detach},{"pthread_create",(void*)b_thrcreate},{"pthread_detach",(void*)b_thread_detach},{"pthread_equal",(void*)b_thread_equal},{"pthread_exit",(void*)b_thread_exit},{"pthread_join",(void*)b_thread_join},{"pthread_self",(void*)b_thread_self},{"pthread_key_delete",(void*)b_thread_keydel},{"pthread_once",(void*)b_thread_once},
+           {"pthread_attr_init",(void*)b_attrinit},{"pthread_attr_destroy",(void*)b_attrdes},{"pthread_attr_setstacksize",(void*)b_attrstack},{"pthread_attr_setdetachstate",(void*)b_attr_detach},{"pthread_getattr_np",(void*)b_getattr_np},{"pthread_attr_getstack",(void*)b_attr_getstack},{"pthread_attr_getstacksize",(void*)b_attr_getstacksize},{"pthread_attr_getguardsize",(void*)b_attr_getguardsize},{"pthread_attr_setguardsize",(void*)b_attr_setguardsize},{"pthread_attr_getdetachstate",(void*)b_attr_getdetach},{"pthread_attr_setstack",(void*)b_attr_setstack},{"pthread_attr_setschedparam",(void*)b_attr_noop},{"pthread_attr_setschedpolicy",(void*)b_attr_noop},{"pthread_attr_setscope",(void*)b_attr_noop},{"pthread_attr_setinheritsched",(void*)b_attr_noop},{"pthread_create",(void*)b_thrcreate},{"pthread_detach",(void*)b_thread_detach},{"pthread_equal",(void*)b_thread_equal},{"pthread_exit",(void*)b_thread_exit},{"pthread_join",(void*)b_thread_join},{"pthread_self",(void*)b_thread_self},{"pthread_key_delete",(void*)b_thread_keydel},{"pthread_once",(void*)b_thread_once},
            {"pthread_rwlock_init",(void*)b_rwlock_init},{"pthread_rwlock_rdlock",(void*)b_rw_rd},{"pthread_rwlock_wrlock",(void*)b_rw_wr},{"pthread_rwlock_unlock",(void*)b_rw_un},{"pthread_rwlock_destroy",(void*)b_rw_des},
            {"sem_init",(void*)b_sem_init},{"sem_wait",(void*)b_sem_wait},{"sem_trywait",(void*)b_sem_trywait},{"sem_post",(void*)b_sem_post},{"sem_destroy",(void*)b_sem_des},{"sem_getvalue",(void*)b_sem_get},
            {"sigaction",(void*)b_sigaction},{"sigprocmask",(void*)b_sigmask},{"pthread_sigmask",(void*)b_sigmask},{"sigemptyset",(void*)b_sigempty},{"sigfillset",(void*)b_sigfill},{"sigaddset",(void*)b_sigadd},{"sigdelset",(void*)b_sigdel},{"sigsuspend",(void*)b_sig_suspend},{"sigaltstack",(void*)b_sig_alt},{"setjmp",(void*)b_setjmp},{"_setjmp",(void*)b_setjmp},{"sigsetjmp",(void*)b_setjmp},{"__sigsetjmp",(void*)b_setjmp},{"longjmp",(void*)b_longjmp},{"_longjmp",(void*)b_longjmp},{"siglongjmp",(void*)b_longjmp},
@@ -1349,6 +1361,53 @@ jobs:
                if(stall_max>0&&stall_s>=stall_max){L("[m2] STALL %d detik -> berhenti (tidak hang selamanya)\n",stall_s);g_m2_done=1;break;}}}}}
             pthread_join(t,NULL);}
 
+          static int bt_ok(uintptr_t a,int fd){return write(fd,(void*)a,4)==4;}
+          static uint32_t arm_imm12(uint32_t i){uint32_t v=i&0xFFu,r=((i>>8)&0xFu)*2u;return r?((v>>r)|(v<<(32u-r))):v;}
+          static void reloc_who(uintptr_t a){int i,pass;
+           for(i=0;i<nmods;i++){Mod*m=&mods[i];
+            for(pass=0;pass<2;pass++){Elf32_Rel*r=pass?m->jrel:m->rel;uint32_t n=pass?m->njrel:m->nrel,k;
+             for(k=0;k<n;k++){if((uintptr_t)m->bias+(uintptr_t)r[k].r_offset==a){uint32_t s=ELF32_R_SYM(r[k].r_info);
+              L("      -> memanggil FUNGSI IMPOR: %s  (slot %s+0x%lx)\n",s?m->str+m->sym[s].st_name:"(nol)",m->name,(unsigned long)r[k].r_offset);return;}}}}}
+          /* v = alamat kembali ARM tepat setelah "bl stub_plt": ambil nama fungsi impor yang dipanggil */
+          static void bl_callee(uintptr_t v,int fd){uint32_t w,i0,i1,i2;uintptr_t t,slot;int32_t off;
+           if(v<0x10000u||(v&3u))return;
+           if(!bt_ok(v-4,fd))return;w=*(uint32_t*)(v-4);
+           if((w&0x0F000000u)!=0x0B000000u)return;
+           off=((int32_t)((w&0x00FFFFFFu)<<8))>>6;
+           t=(v-4)+8+(uintptr_t)off;
+           if(!bt_ok(t,fd)||!bt_ok(t+8,fd))return;
+           i0=*(uint32_t*)t;i1=*(uint32_t*)(t+4);i2=*(uint32_t*)(t+8);
+           if((i0&0xFFFFF000u)!=0xE28FC000u||(i1&0xFFFFF000u)!=0xE28CC000u||(i2&0xFF7FF000u)!=0xE53CF000u)return;
+           slot=(t+8)+arm_imm12(i0)+arm_imm12(i1);
+           if(i2&0x00800000u)slot+=(i2&0xFFFu);else slot-=(i2&0xFFFu);
+           reloc_who(slot);}
+          static int bt_is_call(uintptr_t v,int fd){
+           if(v<0x10000u)return 0;
+           if(v&1u){uintptr_t p=v&~(uintptr_t)1;uint16_t a,b;
+            if(!bt_ok(p-4,fd))return 0;
+            a=*(uint16_t*)(p-4);b=*(uint16_t*)(p-2);
+            if((a&0xF800u)==0xF000u&&(b&0xC000u)==0xC000u)return 1;
+            if((b&0xFF87u)==0x4780u)return 1;
+            return 0;}
+           else{uint32_t w;
+            if(v&3u)return 0;
+            if(!bt_ok(v-4,fd))return 0;
+            w=*(uint32_t*)(v-4);
+            if((w&0x0F000000u)==0x0B000000u)return 1;
+            if((w&0xFE000000u)==0xFA000000u)return 1;
+            if((w&0x0FFFFFF0u)==0x012FFF30u)return 1;
+            return 0;}}
+          static void diag_crash(uintptr_t pc,uintptr_t lr,uintptr_t sp){int fd=open("/dev/null",O_WRONLY),k,n=0;Dl_info d;
+           if(fd<0)return;
+           if(dladdr((void*)pc,&d))L("  pc dladdr: %s (%s+0x%lx)\n",d.dli_sname?d.dli_sname:"?",d.dli_fname?d.dli_fname:"?",(unsigned long)(pc-(uintptr_t)d.dli_fbase));
+           {Mod*m=mod_of(lr);if(m)L("  lr = %s+0x%lx\n",m->name,(unsigned long)(lr-m->bias));}
+           L("  [lr] fungsi yang dipanggil game tepat sebelum crash:\n");bl_callee(lr,fd);
+           L("  [bt] jejak panggilan dari stack:\n");
+           for(k=0;k<3000&&n<40;k++){uintptr_t*pw=&((uintptr_t*)sp)[k];uintptr_t v;Mod*m;
+            if(!bt_ok((uintptr_t)pw,fd))break;
+            v=*pw;m=mod_of(v);if(!m)continue;
+            if(bt_is_call(v,fd)){L("   bt sp+%04d: %s+0x%lx\n",k*4,m->name,(unsigned long)(v-m->bias));bl_callee(v,fd);n++;}}
+           close(fd);}
           static void on_sig(int s,siginfo_t*i,void*c){ucontext_t*u=c;uintptr_t pc=0,lr=0,sp=0;int k;
            static volatile int in_sig=0;
            /* Kalau handler kita sendiri crash (stack rusak), jangan ulangi -> exit langsung. */
@@ -1361,6 +1420,9 @@ jobs:
           #endif
           L("\n*** signal %d addr=%p pc=%p lr=%p sp=%p ***\n",s,i?i->si_addr:NULL,(void*)pc,(void*)lr,(void*)sp);
           {Mod*m=mod_of(pc);if(m)L("  in %s+0x%lx\n",m->name,(unsigned long)(pc-m->bias));}
+#if defined(__arm__)
+diag_crash(pc,lr,sp);
+#endif
           #if defined(__arm__)
           L("  r0=%08lx r1=%08lx r2=%08lx r3=%08lx r4=%08lx r5=%08lx\n",(unsigned long)u->uc_mcontext.arm_r0,(unsigned long)u->uc_mcontext.arm_r1,(unsigned long)u->uc_mcontext.arm_r2,(unsigned long)u->uc_mcontext.arm_r3,(unsigned long)u->uc_mcontext.arm_r4,(unsigned long)u->uc_mcontext.arm_r5);
           L("  r6=%08lx r7=%08lx r8=%08lx r9=%08lx r10=%08lx fp=%08lx ip=%08lx\n",(unsigned long)u->uc_mcontext.arm_r6,(unsigned long)u->uc_mcontext.arm_r7,(unsigned long)u->uc_mcontext.arm_r8,(unsigned long)u->uc_mcontext.arm_r9,(unsigned long)u->uc_mcontext.arm_r10,(unsigned long)u->uc_mcontext.arm_fp,(unsigned long)u->uc_mcontext.arm_ip);
