@@ -1,0 +1,1392 @@
+name: build-letmeeat-m2
+on:
+  workflow_dispatch:
+  push:
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Pasang toolchain ARM 32-bit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-linux-gnueabihf
+      - name: Tulis sumber
+        run: |
+          mkdir -p src out/letmeeat
+          cat > src/stubs.inc <<'EOF_STUBS'
+          static const char *const jni_names[256] = {
+            "reserved0",
+            "reserved1",
+            "reserved2",
+            "reserved3",
+            "GetVersion",
+            "DefineClass",
+            "FindClass",
+            "FromReflectedMethod",
+            "FromReflectedField",
+            "ToReflectedMethod",
+            "GetSuperclass",
+            "IsAssignableFrom",
+            "ToReflectedField",
+            "Throw",
+            "ThrowNew",
+            "ExceptionOccurred",
+            "ExceptionDescribe",
+            "ExceptionClear",
+            "FatalError",
+            "PushLocalFrame",
+            "PopLocalFrame",
+            "NewGlobalRef",
+            "DeleteGlobalRef",
+            "DeleteLocalRef",
+            "IsSameObject",
+            "NewLocalRef",
+            "EnsureLocalCapacity",
+            "AllocObject",
+            "NewObject",
+            "NewObjectV",
+            "NewObjectA",
+            "GetObjectClass",
+            "IsInstanceOf",
+            "GetMethodID",
+            "CallObjectMethod",
+            "CallObjectMethodV",
+            "CallObjectMethodA",
+            "CallBooleanMethod",
+            "CallBooleanMethodV",
+            "CallBooleanMethodA",
+            "CallByteMethod",
+            "CallByteMethodV",
+            "CallByteMethodA",
+            "CallCharMethod",
+            "CallCharMethodV",
+            "CallCharMethodA",
+            "CallShortMethod",
+            "CallShortMethodV",
+            "CallShortMethodA",
+            "CallIntMethod",
+            "CallIntMethodV",
+            "CallIntMethodA",
+            "CallLongMethod",
+            "CallLongMethodV",
+            "CallLongMethodA",
+            "CallFloatMethod",
+            "CallFloatMethodV",
+            "CallFloatMethodA",
+            "CallDoubleMethod",
+            "CallDoubleMethodV",
+            "CallDoubleMethodA",
+            "CallVoidMethod",
+            "CallVoidMethodV",
+            "CallVoidMethodA",
+            "CallNonvirtualObjectMethod",
+            "CallNonvirtualObjectMethodV",
+            "CallNonvirtualObjectMethodA",
+            "CallNonvirtualBooleanMethod",
+            "CallNonvirtualBooleanMethodV",
+            "CallNonvirtualBooleanMethodA",
+            "CallNonvirtualByteMethod",
+            "CallNonvirtualByteMethodV",
+            "CallNonvirtualByteMethodA",
+            "CallNonvirtualCharMethod",
+            "CallNonvirtualCharMethodV",
+            "CallNonvirtualCharMethodA",
+            "CallNonvirtualShortMethod",
+            "CallNonvirtualShortMethodV",
+            "CallNonvirtualShortMethodA",
+            "CallNonvirtualIntMethod",
+            "CallNonvirtualIntMethodV",
+            "CallNonvirtualIntMethodA",
+            "CallNonvirtualLongMethod",
+            "CallNonvirtualLongMethodV",
+            "CallNonvirtualLongMethodA",
+            "CallNonvirtualFloatMethod",
+            "CallNonvirtualFloatMethodV",
+            "CallNonvirtualFloatMethodA",
+            "CallNonvirtualDoubleMethod",
+            "CallNonvirtualDoubleMethodV",
+            "CallNonvirtualDoubleMethodA",
+            "CallNonvirtualVoidMethod",
+            "CallNonvirtualVoidMethodV",
+            "CallNonvirtualVoidMethodA",
+            "GetFieldID",
+            "GetObjectField",
+            "GetBooleanField",
+            "GetByteField",
+            "GetCharField",
+            "GetShortField",
+            "GetIntField",
+            "GetLongField",
+            "GetFloatField",
+            "GetDoubleField",
+            "SetObjectField",
+            "SetBooleanField",
+            "SetByteField",
+            "SetCharField",
+            "SetShortField",
+            "SetIntField",
+            "SetLongField",
+            "SetFloatField",
+            "SetDoubleField",
+            "GetStaticMethodID",
+            "CallStaticObjectMethod",
+            "CallStaticObjectMethodV",
+            "CallStaticObjectMethodA",
+            "CallStaticBooleanMethod",
+            "CallStaticBooleanMethodV",
+            "CallStaticBooleanMethodA",
+            "CallStaticByteMethod",
+            "CallStaticByteMethodV",
+            "CallStaticByteMethodA",
+            "CallStaticCharMethod",
+            "CallStaticCharMethodV",
+            "CallStaticCharMethodA",
+            "CallStaticShortMethod",
+            "CallStaticShortMethodV",
+            "CallStaticShortMethodA",
+            "CallStaticIntMethod",
+            "CallStaticIntMethodV",
+            "CallStaticIntMethodA",
+            "CallStaticLongMethod",
+            "CallStaticLongMethodV",
+            "CallStaticLongMethodA",
+            "CallStaticFloatMethod",
+            "CallStaticFloatMethodV",
+            "CallStaticFloatMethodA",
+            "CallStaticDoubleMethod",
+            "CallStaticDoubleMethodV",
+            "CallStaticDoubleMethodA",
+            "CallStaticVoidMethod",
+            "CallStaticVoidMethodV",
+            "CallStaticVoidMethodA",
+            "GetStaticFieldID",
+            "GetStaticObjectField",
+            "GetStaticBooleanField",
+            "GetStaticByteField",
+            "GetStaticCharField",
+            "GetStaticShortField",
+            "GetStaticIntField",
+            "GetStaticLongField",
+            "GetStaticFloatField",
+            "GetStaticDoubleField",
+            "NewString",
+            "GetStringLength",
+            "GetStringChars",
+            "ReleaseStringChars",
+            "NewStringUTF",
+            "GetStringUTFLength",
+            "GetStringUTFChars",
+            "ReleaseStringUTFChars",
+            "GetArrayLength",
+            "NewObjectArray",
+            "GetObjectArrayElement",
+            "SetObjectArrayElement",
+            "NewBooleanArray",
+            "NewByteArray",
+            "NewCharArray",
+            "NewShortArray",
+            "NewIntArray",
+            "NewLongArray",
+            "NewFloatArray",
+            "NewDoubleArray",
+            "GetBooleanArrayElements",
+            "GetByteArrayElements",
+            "GetCharArrayElements",
+            "GetShortArrayElements",
+            "GetIntArrayElements",
+            "GetLongArrayElements",
+            "GetFloatArrayElements",
+            "GetDoubleArrayElements",
+            "ReleaseBooleanArrayElements",
+            "ReleaseByteArrayElements",
+            "ReleaseCharArrayElements",
+            "ReleaseShortArrayElements",
+            "ReleaseIntArrayElements",
+            "ReleaseLongArrayElements",
+            "ReleaseFloatArrayElements",
+            "ReleaseDoubleArrayElements",
+            "GetBooleanArrayRegion",
+            "GetByteArrayRegion",
+            "GetCharArrayRegion",
+            "GetShortArrayRegion",
+            "GetIntArrayRegion",
+            "GetLongArrayRegion",
+            "GetFloatArrayRegion",
+            "GetDoubleArrayRegion",
+            "SetBooleanArrayRegion",
+            "SetByteArrayRegion",
+            "SetCharArrayRegion",
+            "SetShortArrayRegion",
+            "SetIntArrayRegion",
+            "SetLongArrayRegion",
+            "SetFloatArrayRegion",
+            "SetDoubleArrayRegion",
+            "RegisterNatives",
+            "UnregisterNatives",
+            "MonitorEnter",
+            "MonitorExit",
+            "GetJavaVM",
+            "GetStringRegion",
+            "GetStringUTFRegion",
+            "GetPrimitiveArrayCritical",
+            "ReleasePrimitiveArrayCritical",
+            "GetStringCritical",
+            "ReleaseStringCritical",
+            "NewWeakGlobalRef",
+            "DeleteWeakGlobalRef",
+            "ExceptionCheck",
+            "NewDirectByteBuffer",
+            "GetDirectBufferAddress",
+            "GetDirectBufferCapacity",
+            "GetObjectRefType",
+            "slot233",
+            "slot234",
+            "slot235",
+            "slot236",
+            "slot237",
+            "slot238",
+            "slot239",
+            "slot240",
+            "slot241",
+            "slot242",
+            "slot243",
+            "slot244",
+            "slot245",
+            "slot246",
+            "slot247",
+            "slot248",
+            "slot249",
+            "slot250",
+            "slot251",
+            "slot252",
+            "slot253",
+            "slot254",
+            "slot255",
+          };
+          static int jstub_0(void) { return jni_trap(0); }
+          static int jstub_1(void) { return jni_trap(1); }
+          static int jstub_2(void) { return jni_trap(2); }
+          static int jstub_3(void) { return jni_trap(3); }
+          static int jstub_4(void) { return jni_trap(4); }
+          static int jstub_5(void) { return jni_trap(5); }
+          static int jstub_6(void) { return jni_trap(6); }
+          static int jstub_7(void) { return jni_trap(7); }
+          static int jstub_8(void) { return jni_trap(8); }
+          static int jstub_9(void) { return jni_trap(9); }
+          static int jstub_10(void) { return jni_trap(10); }
+          static int jstub_11(void) { return jni_trap(11); }
+          static int jstub_12(void) { return jni_trap(12); }
+          static int jstub_13(void) { return jni_trap(13); }
+          static int jstub_14(void) { return jni_trap(14); }
+          static int jstub_15(void) { return jni_trap(15); }
+          static int jstub_16(void) { return jni_trap(16); }
+          static int jstub_17(void) { return jni_trap(17); }
+          static int jstub_18(void) { return jni_trap(18); }
+          static int jstub_19(void) { return jni_trap(19); }
+          static int jstub_20(void) { return jni_trap(20); }
+          static int jstub_21(void) { return jni_trap(21); }
+          static int jstub_22(void) { return jni_trap(22); }
+          static int jstub_23(void) { return jni_trap(23); }
+          static int jstub_24(void) { return jni_trap(24); }
+          static int jstub_25(void) { return jni_trap(25); }
+          static int jstub_26(void) { return jni_trap(26); }
+          static int jstub_27(void) { return jni_trap(27); }
+          static int jstub_28(void) { return jni_trap(28); }
+          static int jstub_29(void) { return jni_trap(29); }
+          static int jstub_30(void) { return jni_trap(30); }
+          static int jstub_31(void) { return jni_trap(31); }
+          static int jstub_32(void) { return jni_trap(32); }
+          static int jstub_33(void) { return jni_trap(33); }
+          static int jstub_34(void) { return jni_trap(34); }
+          static int jstub_35(void) { return jni_trap(35); }
+          static int jstub_36(void) { return jni_trap(36); }
+          static int jstub_37(void) { return jni_trap(37); }
+          static int jstub_38(void) { return jni_trap(38); }
+          static int jstub_39(void) { return jni_trap(39); }
+          static int jstub_40(void) { return jni_trap(40); }
+          static int jstub_41(void) { return jni_trap(41); }
+          static int jstub_42(void) { return jni_trap(42); }
+          static int jstub_43(void) { return jni_trap(43); }
+          static int jstub_44(void) { return jni_trap(44); }
+          static int jstub_45(void) { return jni_trap(45); }
+          static int jstub_46(void) { return jni_trap(46); }
+          static int jstub_47(void) { return jni_trap(47); }
+          static int jstub_48(void) { return jni_trap(48); }
+          static int jstub_49(void) { return jni_trap(49); }
+          static int jstub_50(void) { return jni_trap(50); }
+          static int jstub_51(void) { return jni_trap(51); }
+          static int jstub_52(void) { return jni_trap(52); }
+          static int jstub_53(void) { return jni_trap(53); }
+          static int jstub_54(void) { return jni_trap(54); }
+          static int jstub_55(void) { return jni_trap(55); }
+          static int jstub_56(void) { return jni_trap(56); }
+          static int jstub_57(void) { return jni_trap(57); }
+          static int jstub_58(void) { return jni_trap(58); }
+          static int jstub_59(void) { return jni_trap(59); }
+          static int jstub_60(void) { return jni_trap(60); }
+          static int jstub_61(void) { return jni_trap(61); }
+          static int jstub_62(void) { return jni_trap(62); }
+          static int jstub_63(void) { return jni_trap(63); }
+          static int jstub_64(void) { return jni_trap(64); }
+          static int jstub_65(void) { return jni_trap(65); }
+          static int jstub_66(void) { return jni_trap(66); }
+          static int jstub_67(void) { return jni_trap(67); }
+          static int jstub_68(void) { return jni_trap(68); }
+          static int jstub_69(void) { return jni_trap(69); }
+          static int jstub_70(void) { return jni_trap(70); }
+          static int jstub_71(void) { return jni_trap(71); }
+          static int jstub_72(void) { return jni_trap(72); }
+          static int jstub_73(void) { return jni_trap(73); }
+          static int jstub_74(void) { return jni_trap(74); }
+          static int jstub_75(void) { return jni_trap(75); }
+          static int jstub_76(void) { return jni_trap(76); }
+          static int jstub_77(void) { return jni_trap(77); }
+          static int jstub_78(void) { return jni_trap(78); }
+          static int jstub_79(void) { return jni_trap(79); }
+          static int jstub_80(void) { return jni_trap(80); }
+          static int jstub_81(void) { return jni_trap(81); }
+          static int jstub_82(void) { return jni_trap(82); }
+          static int jstub_83(void) { return jni_trap(83); }
+          static int jstub_84(void) { return jni_trap(84); }
+          static int jstub_85(void) { return jni_trap(85); }
+          static int jstub_86(void) { return jni_trap(86); }
+          static int jstub_87(void) { return jni_trap(87); }
+          static int jstub_88(void) { return jni_trap(88); }
+          static int jstub_89(void) { return jni_trap(89); }
+          static int jstub_90(void) { return jni_trap(90); }
+          static int jstub_91(void) { return jni_trap(91); }
+          static int jstub_92(void) { return jni_trap(92); }
+          static int jstub_93(void) { return jni_trap(93); }
+          static int jstub_94(void) { return jni_trap(94); }
+          static int jstub_95(void) { return jni_trap(95); }
+          static int jstub_96(void) { return jni_trap(96); }
+          static int jstub_97(void) { return jni_trap(97); }
+          static int jstub_98(void) { return jni_trap(98); }
+          static int jstub_99(void) { return jni_trap(99); }
+          static int jstub_100(void) { return jni_trap(100); }
+          static int jstub_101(void) { return jni_trap(101); }
+          static int jstub_102(void) { return jni_trap(102); }
+          static int jstub_103(void) { return jni_trap(103); }
+          static int jstub_104(void) { return jni_trap(104); }
+          static int jstub_105(void) { return jni_trap(105); }
+          static int jstub_106(void) { return jni_trap(106); }
+          static int jstub_107(void) { return jni_trap(107); }
+          static int jstub_108(void) { return jni_trap(108); }
+          static int jstub_109(void) { return jni_trap(109); }
+          static int jstub_110(void) { return jni_trap(110); }
+          static int jstub_111(void) { return jni_trap(111); }
+          static int jstub_112(void) { return jni_trap(112); }
+          static int jstub_113(void) { return jni_trap(113); }
+          static int jstub_114(void) { return jni_trap(114); }
+          static int jstub_115(void) { return jni_trap(115); }
+          static int jstub_116(void) { return jni_trap(116); }
+          static int jstub_117(void) { return jni_trap(117); }
+          static int jstub_118(void) { return jni_trap(118); }
+          static int jstub_119(void) { return jni_trap(119); }
+          static int jstub_120(void) { return jni_trap(120); }
+          static int jstub_121(void) { return jni_trap(121); }
+          static int jstub_122(void) { return jni_trap(122); }
+          static int jstub_123(void) { return jni_trap(123); }
+          static int jstub_124(void) { return jni_trap(124); }
+          static int jstub_125(void) { return jni_trap(125); }
+          static int jstub_126(void) { return jni_trap(126); }
+          static int jstub_127(void) { return jni_trap(127); }
+          static int jstub_128(void) { return jni_trap(128); }
+          static int jstub_129(void) { return jni_trap(129); }
+          static int jstub_130(void) { return jni_trap(130); }
+          static int jstub_131(void) { return jni_trap(131); }
+          static int jstub_132(void) { return jni_trap(132); }
+          static int jstub_133(void) { return jni_trap(133); }
+          static int jstub_134(void) { return jni_trap(134); }
+          static int jstub_135(void) { return jni_trap(135); }
+          static int jstub_136(void) { return jni_trap(136); }
+          static int jstub_137(void) { return jni_trap(137); }
+          static int jstub_138(void) { return jni_trap(138); }
+          static int jstub_139(void) { return jni_trap(139); }
+          static int jstub_140(void) { return jni_trap(140); }
+          static int jstub_141(void) { return jni_trap(141); }
+          static int jstub_142(void) { return jni_trap(142); }
+          static int jstub_143(void) { return jni_trap(143); }
+          static int jstub_144(void) { return jni_trap(144); }
+          static int jstub_145(void) { return jni_trap(145); }
+          static int jstub_146(void) { return jni_trap(146); }
+          static int jstub_147(void) { return jni_trap(147); }
+          static int jstub_148(void) { return jni_trap(148); }
+          static int jstub_149(void) { return jni_trap(149); }
+          static int jstub_150(void) { return jni_trap(150); }
+          static int jstub_151(void) { return jni_trap(151); }
+          static int jstub_152(void) { return jni_trap(152); }
+          static int jstub_153(void) { return jni_trap(153); }
+          static int jstub_154(void) { return jni_trap(154); }
+          static int jstub_155(void) { return jni_trap(155); }
+          static int jstub_156(void) { return jni_trap(156); }
+          static int jstub_157(void) { return jni_trap(157); }
+          static int jstub_158(void) { return jni_trap(158); }
+          static int jstub_159(void) { return jni_trap(159); }
+          static int jstub_160(void) { return jni_trap(160); }
+          static int jstub_161(void) { return jni_trap(161); }
+          static int jstub_162(void) { return jni_trap(162); }
+          static int jstub_163(void) { return jni_trap(163); }
+          static int jstub_164(void) { return jni_trap(164); }
+          static int jstub_165(void) { return jni_trap(165); }
+          static int jstub_166(void) { return jni_trap(166); }
+          static int jstub_167(void) { return jni_trap(167); }
+          static int jstub_168(void) { return jni_trap(168); }
+          static int jstub_169(void) { return jni_trap(169); }
+          static int jstub_170(void) { return jni_trap(170); }
+          static int jstub_171(void) { return jni_trap(171); }
+          static int jstub_172(void) { return jni_trap(172); }
+          static int jstub_173(void) { return jni_trap(173); }
+          static int jstub_174(void) { return jni_trap(174); }
+          static int jstub_175(void) { return jni_trap(175); }
+          static int jstub_176(void) { return jni_trap(176); }
+          static int jstub_177(void) { return jni_trap(177); }
+          static int jstub_178(void) { return jni_trap(178); }
+          static int jstub_179(void) { return jni_trap(179); }
+          static int jstub_180(void) { return jni_trap(180); }
+          static int jstub_181(void) { return jni_trap(181); }
+          static int jstub_182(void) { return jni_trap(182); }
+          static int jstub_183(void) { return jni_trap(183); }
+          static int jstub_184(void) { return jni_trap(184); }
+          static int jstub_185(void) { return jni_trap(185); }
+          static int jstub_186(void) { return jni_trap(186); }
+          static int jstub_187(void) { return jni_trap(187); }
+          static int jstub_188(void) { return jni_trap(188); }
+          static int jstub_189(void) { return jni_trap(189); }
+          static int jstub_190(void) { return jni_trap(190); }
+          static int jstub_191(void) { return jni_trap(191); }
+          static int jstub_192(void) { return jni_trap(192); }
+          static int jstub_193(void) { return jni_trap(193); }
+          static int jstub_194(void) { return jni_trap(194); }
+          static int jstub_195(void) { return jni_trap(195); }
+          static int jstub_196(void) { return jni_trap(196); }
+          static int jstub_197(void) { return jni_trap(197); }
+          static int jstub_198(void) { return jni_trap(198); }
+          static int jstub_199(void) { return jni_trap(199); }
+          static int jstub_200(void) { return jni_trap(200); }
+          static int jstub_201(void) { return jni_trap(201); }
+          static int jstub_202(void) { return jni_trap(202); }
+          static int jstub_203(void) { return jni_trap(203); }
+          static int jstub_204(void) { return jni_trap(204); }
+          static int jstub_205(void) { return jni_trap(205); }
+          static int jstub_206(void) { return jni_trap(206); }
+          static int jstub_207(void) { return jni_trap(207); }
+          static int jstub_208(void) { return jni_trap(208); }
+          static int jstub_209(void) { return jni_trap(209); }
+          static int jstub_210(void) { return jni_trap(210); }
+          static int jstub_211(void) { return jni_trap(211); }
+          static int jstub_212(void) { return jni_trap(212); }
+          static int jstub_213(void) { return jni_trap(213); }
+          static int jstub_214(void) { return jni_trap(214); }
+          static int jstub_215(void) { return jni_trap(215); }
+          static int jstub_216(void) { return jni_trap(216); }
+          static int jstub_217(void) { return jni_trap(217); }
+          static int jstub_218(void) { return jni_trap(218); }
+          static int jstub_219(void) { return jni_trap(219); }
+          static int jstub_220(void) { return jni_trap(220); }
+          static int jstub_221(void) { return jni_trap(221); }
+          static int jstub_222(void) { return jni_trap(222); }
+          static int jstub_223(void) { return jni_trap(223); }
+          static int jstub_224(void) { return jni_trap(224); }
+          static int jstub_225(void) { return jni_trap(225); }
+          static int jstub_226(void) { return jni_trap(226); }
+          static int jstub_227(void) { return jni_trap(227); }
+          static int jstub_228(void) { return jni_trap(228); }
+          static int jstub_229(void) { return jni_trap(229); }
+          static int jstub_230(void) { return jni_trap(230); }
+          static int jstub_231(void) { return jni_trap(231); }
+          static int jstub_232(void) { return jni_trap(232); }
+          static int jstub_233(void) { return jni_trap(233); }
+          static int jstub_234(void) { return jni_trap(234); }
+          static int jstub_235(void) { return jni_trap(235); }
+          static int jstub_236(void) { return jni_trap(236); }
+          static int jstub_237(void) { return jni_trap(237); }
+          static int jstub_238(void) { return jni_trap(238); }
+          static int jstub_239(void) { return jni_trap(239); }
+          static int jstub_240(void) { return jni_trap(240); }
+          static int jstub_241(void) { return jni_trap(241); }
+          static int jstub_242(void) { return jni_trap(242); }
+          static int jstub_243(void) { return jni_trap(243); }
+          static int jstub_244(void) { return jni_trap(244); }
+          static int jstub_245(void) { return jni_trap(245); }
+          static int jstub_246(void) { return jni_trap(246); }
+          static int jstub_247(void) { return jni_trap(247); }
+          static int jstub_248(void) { return jni_trap(248); }
+          static int jstub_249(void) { return jni_trap(249); }
+          static int jstub_250(void) { return jni_trap(250); }
+          static int jstub_251(void) { return jni_trap(251); }
+          static int jstub_252(void) { return jni_trap(252); }
+          static int jstub_253(void) { return jni_trap(253); }
+          static int jstub_254(void) { return jni_trap(254); }
+          static int jstub_255(void) { return jni_trap(255); }
+          static void *const jstubs[256] = {
+            (void *)jstub_0, (void *)jstub_1, (void *)jstub_2, (void *)jstub_3, (void *)jstub_4, (void *)jstub_5, (void *)jstub_6, (void *)jstub_7, (void *)jstub_8, (void *)jstub_9, (void *)jstub_10, (void *)jstub_11, (void *)jstub_12, (void *)jstub_13, (void *)jstub_14, (void *)jstub_15, (void *)jstub_16, (void *)jstub_17, (void *)jstub_18, (void *)jstub_19, (void *)jstub_20, (void *)jstub_21, (void *)jstub_22, (void *)jstub_23, (void *)jstub_24, (void *)jstub_25, (void *)jstub_26, (void *)jstub_27, (void *)jstub_28, (void *)jstub_29, (void *)jstub_30, (void *)jstub_31, (void *)jstub_32, (void *)jstub_33, (void *)jstub_34, (void *)jstub_35, (void *)jstub_36, (void *)jstub_37, (void *)jstub_38, (void *)jstub_39, (void *)jstub_40, (void *)jstub_41, (void *)jstub_42, (void *)jstub_43, (void *)jstub_44, (void *)jstub_45, (void *)jstub_46, (void *)jstub_47, (void *)jstub_48, (void *)jstub_49, (void *)jstub_50, (void *)jstub_51, (void *)jstub_52, (void *)jstub_53, (void *)jstub_54, (void *)jstub_55, (void *)jstub_56, (void *)jstub_57, (void *)jstub_58, (void *)jstub_59, (void *)jstub_60, (void *)jstub_61, (void *)jstub_62, (void *)jstub_63, (void *)jstub_64, (void *)jstub_65, (void *)jstub_66, (void *)jstub_67, (void *)jstub_68, (void *)jstub_69, (void *)jstub_70, (void *)jstub_71, (void *)jstub_72, (void *)jstub_73, (void *)jstub_74, (void *)jstub_75, (void *)jstub_76, (void *)jstub_77, (void *)jstub_78, (void *)jstub_79, (void *)jstub_80, (void *)jstub_81, (void *)jstub_82, (void *)jstub_83, (void *)jstub_84, (void *)jstub_85, (void *)jstub_86, (void *)jstub_87, (void *)jstub_88, (void *)jstub_89, (void *)jstub_90, (void *)jstub_91, (void *)jstub_92, (void *)jstub_93, (void *)jstub_94, (void *)jstub_95, (void *)jstub_96, (void *)jstub_97, (void *)jstub_98, (void *)jstub_99, (void *)jstub_100, (void *)jstub_101, (void *)jstub_102, (void *)jstub_103, (void *)jstub_104, (void *)jstub_105, (void *)jstub_106, (void *)jstub_107, (void *)jstub_108, (void *)jstub_109, (void *)jstub_110, (void *)jstub_111, (void *)jstub_112, (void *)jstub_113, (void *)jstub_114, (void *)jstub_115, (void *)jstub_116, (void *)jstub_117, (void *)jstub_118, (void *)jstub_119, (void *)jstub_120, (void *)jstub_121, (void *)jstub_122, (void *)jstub_123, (void *)jstub_124, (void *)jstub_125, (void *)jstub_126, (void *)jstub_127, (void *)jstub_128, (void *)jstub_129, (void *)jstub_130, (void *)jstub_131, (void *)jstub_132, (void *)jstub_133, (void *)jstub_134, (void *)jstub_135, (void *)jstub_136, (void *)jstub_137, (void *)jstub_138, (void *)jstub_139, (void *)jstub_140, (void *)jstub_141, (void *)jstub_142, (void *)jstub_143, (void *)jstub_144, (void *)jstub_145, (void *)jstub_146, (void *)jstub_147, (void *)jstub_148, (void *)jstub_149, (void *)jstub_150, (void *)jstub_151, (void *)jstub_152, (void *)jstub_153, (void *)jstub_154, (void *)jstub_155, (void *)jstub_156, (void *)jstub_157, (void *)jstub_158, (void *)jstub_159, (void *)jstub_160, (void *)jstub_161, (void *)jstub_162, (void *)jstub_163, (void *)jstub_164, (void *)jstub_165, (void *)jstub_166, (void *)jstub_167, (void *)jstub_168, (void *)jstub_169, (void *)jstub_170, (void *)jstub_171, (void *)jstub_172, (void *)jstub_173, (void *)jstub_174, (void *)jstub_175, (void *)jstub_176, (void *)jstub_177, (void *)jstub_178, (void *)jstub_179, (void *)jstub_180, (void *)jstub_181, (void *)jstub_182, (void *)jstub_183, (void *)jstub_184, (void *)jstub_185, (void *)jstub_186, (void *)jstub_187, (void *)jstub_188, (void *)jstub_189, (void *)jstub_190, (void *)jstub_191, (void *)jstub_192, (void *)jstub_193, (void *)jstub_194, (void *)jstub_195, (void *)jstub_196, (void *)jstub_197, (void *)jstub_198, (void *)jstub_199, (void *)jstub_200, (void *)jstub_201, (void *)jstub_202, (void *)jstub_203, (void *)jstub_204, (void *)jstub_205, (void *)jstub_206, (void *)jstub_207, (void *)jstub_208, (void *)jstub_209, (void *)jstub_210, (void *)jstub_211, (void *)jstub_212, (void *)jstub_213, (void *)jstub_214, (void *)jstub_215, (void *)jstub_216, (void *)jstub_217, (void *)jstub_218, (void *)jstub_219, (void *)jstub_220, (void *)jstub_221, (void *)jstub_222, (void *)jstub_223, (void *)jstub_224, (void *)jstub_225, (void *)jstub_226, (void *)jstub_227, (void *)jstub_228, (void *)jstub_229, (void *)jstub_230, (void *)jstub_231, (void *)jstub_232, (void *)jstub_233, (void *)jstub_234, (void *)jstub_235, (void *)jstub_236, (void *)jstub_237, (void *)jstub_238, (void *)jstub_239, (void *)jstub_240, (void *)jstub_241, (void *)jstub_242, (void *)jstub_243, (void *)jstub_244, (void *)jstub_245, (void *)jstub_246, (void *)jstub_247, (void *)jstub_248, (void *)jstub_249, (void *)jstub_250, (void *)jstub_251, (void *)jstub_252, (void *)jstub_253, (void *)jstub_254, (void *)jstub_255
+          };
+          static int tstub_0(void) { return trap_unres(0); }
+          static int tstub_1(void) { return trap_unres(1); }
+          static int tstub_2(void) { return trap_unres(2); }
+          static int tstub_3(void) { return trap_unres(3); }
+          static int tstub_4(void) { return trap_unres(4); }
+          static int tstub_5(void) { return trap_unres(5); }
+          static int tstub_6(void) { return trap_unres(6); }
+          static int tstub_7(void) { return trap_unres(7); }
+          static int tstub_8(void) { return trap_unres(8); }
+          static int tstub_9(void) { return trap_unres(9); }
+          static int tstub_10(void) { return trap_unres(10); }
+          static int tstub_11(void) { return trap_unres(11); }
+          static int tstub_12(void) { return trap_unres(12); }
+          static int tstub_13(void) { return trap_unres(13); }
+          static int tstub_14(void) { return trap_unres(14); }
+          static int tstub_15(void) { return trap_unres(15); }
+          static int tstub_16(void) { return trap_unres(16); }
+          static int tstub_17(void) { return trap_unres(17); }
+          static int tstub_18(void) { return trap_unres(18); }
+          static int tstub_19(void) { return trap_unres(19); }
+          static int tstub_20(void) { return trap_unres(20); }
+          static int tstub_21(void) { return trap_unres(21); }
+          static int tstub_22(void) { return trap_unres(22); }
+          static int tstub_23(void) { return trap_unres(23); }
+          static int tstub_24(void) { return trap_unres(24); }
+          static int tstub_25(void) { return trap_unres(25); }
+          static int tstub_26(void) { return trap_unres(26); }
+          static int tstub_27(void) { return trap_unres(27); }
+          static int tstub_28(void) { return trap_unres(28); }
+          static int tstub_29(void) { return trap_unres(29); }
+          static int tstub_30(void) { return trap_unres(30); }
+          static int tstub_31(void) { return trap_unres(31); }
+          static int tstub_32(void) { return trap_unres(32); }
+          static int tstub_33(void) { return trap_unres(33); }
+          static int tstub_34(void) { return trap_unres(34); }
+          static int tstub_35(void) { return trap_unres(35); }
+          static int tstub_36(void) { return trap_unres(36); }
+          static int tstub_37(void) { return trap_unres(37); }
+          static int tstub_38(void) { return trap_unres(38); }
+          static int tstub_39(void) { return trap_unres(39); }
+          static int tstub_40(void) { return trap_unres(40); }
+          static int tstub_41(void) { return trap_unres(41); }
+          static int tstub_42(void) { return trap_unres(42); }
+          static int tstub_43(void) { return trap_unres(43); }
+          static int tstub_44(void) { return trap_unres(44); }
+          static int tstub_45(void) { return trap_unres(45); }
+          static int tstub_46(void) { return trap_unres(46); }
+          static int tstub_47(void) { return trap_unres(47); }
+          static int tstub_48(void) { return trap_unres(48); }
+          static int tstub_49(void) { return trap_unres(49); }
+          static int tstub_50(void) { return trap_unres(50); }
+          static int tstub_51(void) { return trap_unres(51); }
+          static int tstub_52(void) { return trap_unres(52); }
+          static int tstub_53(void) { return trap_unres(53); }
+          static int tstub_54(void) { return trap_unres(54); }
+          static int tstub_55(void) { return trap_unres(55); }
+          static int tstub_56(void) { return trap_unres(56); }
+          static int tstub_57(void) { return trap_unres(57); }
+          static int tstub_58(void) { return trap_unres(58); }
+          static int tstub_59(void) { return trap_unres(59); }
+          static int tstub_60(void) { return trap_unres(60); }
+          static int tstub_61(void) { return trap_unres(61); }
+          static int tstub_62(void) { return trap_unres(62); }
+          static int tstub_63(void) { return trap_unres(63); }
+          static void *const tstubs[64] = {
+            (void *)tstub_0, (void *)tstub_1, (void *)tstub_2, (void *)tstub_3, (void *)tstub_4, (void *)tstub_5, (void *)tstub_6, (void *)tstub_7, (void *)tstub_8, (void *)tstub_9, (void *)tstub_10, (void *)tstub_11, (void *)tstub_12, (void *)tstub_13, (void *)tstub_14, (void *)tstub_15, (void *)tstub_16, (void *)tstub_17, (void *)tstub_18, (void *)tstub_19, (void *)tstub_20, (void *)tstub_21, (void *)tstub_22, (void *)tstub_23, (void *)tstub_24, (void *)tstub_25, (void *)tstub_26, (void *)tstub_27, (void *)tstub_28, (void *)tstub_29, (void *)tstub_30, (void *)tstub_31, (void *)tstub_32, (void *)tstub_33, (void *)tstub_34, (void *)tstub_35, (void *)tstub_36, (void *)tstub_37, (void *)tstub_38, (void *)tstub_39, (void *)tstub_40, (void *)tstub_41, (void *)tstub_42, (void *)tstub_43, (void *)tstub_44, (void *)tstub_45, (void *)tstub_46, (void *)tstub_47, (void *)tstub_48, (void *)tstub_49, (void *)tstub_50, (void *)tstub_51, (void *)tstub_52, (void *)tstub_53, (void *)tstub_54, (void *)tstub_55, (void *)tstub_56, (void *)tstub_57, (void *)tstub_58, (void *)tstub_59, (void *)tstub_60, (void *)tstub_61, (void *)tstub_62, (void *)tstub_63
+          };
+          EOF_STUBS
+          cat > src/letmeeatloader.c <<'EOF_C'
+          /*
+           * letmeeatloader - Milestone 2: Let Me Eat Unity 6000.0 IL2CPP, armeabi-v7a -> armhf/muOS.
+           * Based on working Luxor ARM32 loader + Wobble Unity boot/render/input path.
+           * M1 loads/relocates the Android libraries and calls JNI_OnLoad. M2 adds an SDL2
+           * window, reuses its EGL context/surface through a hybrid EGL bridge, then invokes
+           * UnityPlayer natives on a dedicated UnityMain thread and maps gamepad input to
+           * Android MotionEvent objects. This remains experimental; real device smoke test is required.
+           */
+          #define _GNU_SOURCE
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <string.h>
+          #include <stdint.h>
+          #include <stdarg.h>
+          #include <errno.h>
+          #include <math.h>
+          #include <time.h>
+          #include <elf.h>
+          #include <link.h>
+          #include <dlfcn.h>
+          #include <fcntl.h>
+          #include <unistd.h>
+          #include <pthread.h>
+          #include <semaphore.h>
+          #include <signal.h>
+          #include <ucontext.h>
+          #include <sys/mman.h>
+          #include <sys/stat.h>
+          #include <sys/vfs.h>
+          #include <sys/syscall.h>
+          #include <sys/utsname.h>
+          #include <sys/select.h>
+          #include <sys/prctl.h>
+          #include <dirent.h>
+          #include <ftw.h>
+          #include <wchar.h>
+          #include <wctype.h>
+          #include <locale.h>
+          #include <setjmp.h>
+          #include <gnu/libc-version.h>
+          #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+          #define PAGE 4096u
+          #define MAXMOD 4
+          #define MAXUNRES 64
+          #define U32(p) ((uint32_t)(uintptr_t)(p))
+          #ifdef __arm__
+          #define AAPCS __attribute__((pcs("aapcs")))
+          #else
+          #define AAPCS
+          #endif
+          static FILE *g_log;
+          static int g_fslog_n;
+          #define FSL(op,p) do{if(g_fslog_n++<350)L("[fs] %s(%s)\n",op,(p)?(const char*)(p):"(null)");}while(0)
+          static void L(const char *fmt,...){va_list a;va_start(a,fmt);vfprintf(stdout,fmt,a);va_end(a);fflush(stdout);if(g_log){va_start(a,fmt);vfprintf(g_log,fmt,a);va_end(a);fflush(g_log);}}
+          static int g_stage=2, g_timeout=90, g_ncaught, g_frames_target=900, g_fps=60;
+          static const char *g_assets="assets", *g_libdir="libs";
+          static char g_game_root[512]=".",g_data_dir[512],g_package_path[512],g_apk_arg[512];
+          static int path_join(char*out,size_t n,const char*a,const char*b){int r=snprintf(out,n,"%s/%s",a?a:".",b?b:"");return r>0&&(size_t)r<n;}
+          static int file_exists(const char*p){struct stat st;FSL("stat",p);return p&&stat(p,&st)==0;}
+          typedef struct{uint8_t*data;long len,pos;}JStr;static JStr g_streams[64];static int g_stream_n;
+          static JStr*stream_get(void*h){uintptr_t v=(uintptr_t)h;if(v<0x74000000u||v>=0x74000000u+64u*4u)return NULL;return &g_streams[(v-0x74000000u)/4u];}
+          static void*stream_handle(int i){return(void*)(uintptr_t)(0x74000000u+(uint32_t)i*4u);}
+          static void*stream_open(const char*rel){
+           char p[900];FILE*f;long z;uint8_t*b;
+           if(!rel||!*rel)return NULL;
+           snprintf(p,sizeof p,"%s/%s",g_assets,rel);
+           if(!file_exists(p))snprintf(p,sizeof p,"%s/assets/%s",g_game_root,rel);
+           if(!file_exists(p))snprintf(p,sizeof p,"%s/%s",g_game_root,rel);
+           f=fopen(p,"rb");if(!f){L("[stream] open gagal: %s\n",p);return NULL;}
+           fseek(f,0,SEEK_END);z=ftell(f);fseek(f,0,SEEK_SET);
+           if(z<=0){fclose(f);return NULL;}
+           b=malloc((size_t)z);if(!b||fread(b,1,(size_t)z,f)!=(size_t)z){free(b);fclose(f);return NULL;}
+           fclose(f);
+           if(g_stream_n>=64){free(b);return NULL;}
+           g_streams[g_stream_n].data=b;g_streams[g_stream_n].len=z;g_streams[g_stream_n].pos=0;
+           L("[stream] open \"%s\" -> %ld byte\n",rel,z);
+           return stream_handle(g_stream_n++);
+          }
+          typedef struct{char rel[320];uint32_t sz,crc,off;}ZipE;
+          static ZipE*ze;static int nze,mze;
+          static uint32_t crc_tab[256];static int crc_ok;
+          static void crc_init(void){uint32_t i,j,c;for(i=0;i<256;i++){c=i;for(j=0;j<8;j++)c=(c&1)?(0xEDB88320u^(c>>1)):(c>>1);crc_tab[i]=c;}crc_ok=1;}
+          static uint32_t crc32b(const void*b,size_t n){const uint8_t*p=b;uint32_t c=0xFFFFFFFFu;size_t i;if(!crc_ok)crc_init();for(i=0;i<n;i++)c=crc_tab[(c^p[i])&0xFFu]^(c>>8);return c^0xFFFFFFFFu;}
+          static void zput16(FILE*f,uint16_t v){uint8_t b[2]={(uint8_t)v,(uint8_t)(v>>8)};fwrite(b,1,2,f);}
+          static void zput32(FILE*f,uint32_t v){uint8_t b[4]={(uint8_t)v,(uint8_t)(v>>8),(uint8_t)(v>>16),(uint8_t)(v>>24)};fwrite(b,1,4,f);}
+          static int zip_scan(const char*absroot,const char*relroot){
+           DIR*d=opendir(absroot);struct dirent64*e;
+           if(!d)return -1;
+           while((e=readdir64(d))){
+            char a[700];struct stat st;
+            if(e->d_name[0]=='.')continue;
+            snprintf(a,sizeof a,"%s/%s",absroot,e->d_name);
+            if(stat(a,&st)!=0)continue;
+            if(S_ISDIR(st.st_mode)){char r[400];snprintf(r,sizeof r,"%s/%s",relroot,e->d_name);zip_scan(a,r);}
+            else if(S_ISREG(st.st_mode)&&nze<4000){
+             if(nze>=mze){mze=mze?mze*2:256;ze=realloc(ze,(size_t)mze*sizeof*ze);}
+             snprintf(ze[nze].rel,sizeof ze[nze].rel,"%s/%s",relroot,e->d_name);
+             ze[nze].sz=(uint32_t)st.st_size;ze[nze].crc=0;ze[nze].off=0;nze++;
+            }
+           }
+           closedir(d);return 0;
+          }
+          static int zip_build(const char*outp,const char*assetsdir){
+           FILE*f;long cdstart;int i;
+           nze=0;zip_scan(assetsdir,"assets");
+           if(!nze){L("[apk] tidak ada file di %s\n",assetsdir);return -1;}
+           f=fopen(outp,"wb");if(!f){L("[apk] gagal tulis %s\n",outp);return -1;}
+           L("[apk] merangkai %s (%d file dari %s)...\n",outp,nze,assetsdir);
+           for(i=0;i<nze;i++){
+            char ap[700];FILE*in;uint8_t*buf;size_t got;long ds;
+            snprintf(ap,sizeof ap,"%s/%s",assetsdir,ze[i].rel+7);
+            in=fopen(ap,"rb");
+            if(!in){L("[apk] baca gagal: %s\n",ap);continue;}
+            buf=malloc(ze[i].sz?ze[i].sz:1);
+            got=buf?fread(buf,1,ze[i].sz,in):0;fclose(in);
+            if(got!=ze[i].sz){L("[apk] baca tidak lengkap: %s\n",ap);free(buf);continue;}
+            ze[i].crc=crc32b(buf,ze[i].sz);
+            ze[i].off=(uint32_t)ftell(f);
+            zput32(f,0x04034b50);zput16(f,20);zput16(f,0);zput16(f,0);zput16(f,0);zput16(f,0);
+            zput32(f,ze[i].crc);zput32(f,ze[i].sz);zput32(f,ze[i].sz);
+            zput16(f,(uint16_t)strlen(ze[i].rel));zput16(f,0);
+            fwrite(ze[i].rel,1,strlen(ze[i].rel),f);
+            ds=ftell(f);fwrite(buf,1,ze[i].sz,f);free(buf);(void)ds;
+           }
+           cdstart=ftell(f);
+           for(i=0;i<nze;i++){
+            zput32(f,0x02014b50);zput16(f,20);zput16(f,20);zput16(f,0);zput16(f,0);zput16(f,0);zput16(f,0);
+            zput32(f,ze[i].crc);zput32(f,ze[i].sz);zput32(f,ze[i].sz);
+            zput16(f,(uint16_t)strlen(ze[i].rel));zput16(f,0);zput16(f,0);zput16(f,0);zput16(f,0);
+            zput32(f,0);zput32(f,ze[i].off);
+            fwrite(ze[i].rel,1,strlen(ze[i].rel),f);
+           }
+           {long cdend=ftell(f);
+            zput32(f,0x06054b50);zput16(f,0);zput16(f,0);zput16(f,(uint16_t)nze);zput16(f,(uint16_t)nze);
+            zput32(f,(uint32_t)(cdend-cdstart));zput32(f,(uint32_t)cdstart);zput16(f,0);}
+           fclose(f);
+           L("[apk] selesai: %s (%d file)\n",outp,nze);
+           return 0;
+          }
+          static int setup_game_paths(const char*libdir,const char*assetsdir){
+           char tmp[600],ap[600];struct stat st;
+           if(!getcwd(g_game_root,sizeof g_game_root))snprintf(g_game_root,sizeof g_game_root,".");
+           snprintf(g_data_dir,sizeof g_data_dir,"%s/data",g_game_root);
+           if(mkdir(g_data_dir,0755)!=0&&errno!=EEXIST){L("[path] gagal buat dataDir %s: %s\n",g_data_dir,strerror(errno));return -1;}
+           if(file_exists(g_apk_arg)){if(!realpath(g_apk_arg,tmp))snprintf(tmp,sizeof tmp,"%s/%s",g_game_root,g_apk_arg);snprintf(g_package_path,sizeof g_package_path,"%s",tmp);}
+           else{
+            snprintf(ap,sizeof ap,"%s/letmeeat.apk",g_game_root);
+            {int need=stat(ap,&st)!=0;if(!need){char d[700];snprintf(d,sizeof d,"%s/bin/Data/data.unity3d",assetsdir);if(stat(d,&st)==0){struct stat z;if(stat(ap,&z)==0&&z.st_mtime<st.st_mtime)need=1;}}
+             if(need&&zip_build(ap,assetsdir)!=0)return -1;}
+            snprintf(g_package_path,sizeof g_package_path,"%s",ap);
+           }
+           L("[path] root=%s\n[path] dataDir=%s\n[path] packagePath=%s (assets=%s lib=%s)\n",g_game_root,g_data_dir,g_package_path,assetsdir,libdir);
+           (void)libdir;
+           return 0;
+          }
+          static int rm_cb(const char*p,const struct stat*st,int t,struct FTW*w){(void)st;(void)w;if(t==FTW_DP)rmdir(p);else unlink(p);return 0;}
+          static void wipe_il2cpp_cache(void){
+           char d[600];
+           snprintf(d,sizeof d,"%s/data/il2cpp",g_game_root);
+           if(file_exists(d)){L("[cache] bersihkan %s\n",d);nftw(d,rm_cb,8,FTW_DEPTH|FTW_PHYS);}
+           snprintf(d,sizeof d,"%s/save/il2cpp",g_game_root);
+           if(file_exists(d)){L("[cache] bersihkan %s\n",d);nftw(d,rm_cb,8,FTW_DEPTH|FTW_PHYS);}
+          }
+          typedef struct {char name[64];uint8_t *file;size_t fsize;uint8_t *base;size_t span;uintptr_t bias;Elf32_Sym *sym;int nsym;const char *str;Elf32_Rel *rel,*jrel;uint32_t nrel,njrel,init,*iarr,niarr,exidx,exidx_sz;int ntls;const Elf32_Phdr *ph;int nph;} Mod;
+          static Mod mods[MAXMOD];static int nmods;
+          static const char *unres_name[MAXUNRES];static int nunres;
+          static const char *shim_hit[512];static int nshim_hit;
+          static int cnt_self,cnt_mod,cnt_shim,cnt_libc,cnt_gl,cnt_unres,cnt_weak0,cnt_fpwarn;
+          static void *h_gles,*h_egl,*h_z;
+          static int trap_unres(int);static int jni_trap(int);
+          static void *b_dlopen(const char *,int);static void *b_dlsym(void *,const char *);static int b_dlclose(void *);static char *b_dlerror(void);static void *b_dladdr(void *,void *);static int b_dl_iterate_phdr(int(*)(struct dl_phdr_info *,size_t,void *),void *);static void *b_dl_unwind_find_exidx(uintptr_t,int *);
+          #include "stubs.inc"
+          static int trap_unres(int i){L("*** unresolved dipanggil: %s ***\n",i>=0&&i<nunres?unres_name[i]:"?");_exit(3);return 0;}
+
+          typedef union{int32_t i;int64_t j;float f;double d;void*l;} jv;
+          typedef struct{char t;int len;void*data;}JArrM;static JArrM g_arrs[512];static int g_arr_n;
+          static void*arr_new(char t,int len){JArrM*a;size_t sz=1;if(len<0)len=0;if(g_arr_n>=512)return NULL;switch(t){case 'J':case 'D':sz=8;break;case 'I':case 'F':sz=4;break;case 'S':case 'C':sz=2;break;case 'L':sz=sizeof(void*);break;default:sz=1;}a=&g_arrs[g_arr_n];a->t=t;a->len=len;a->data=calloc(len?(size_t)len:1,sz);if(!a->data)return NULL;return(void*)(uintptr_t)(0x72000000u+(uint32_t)g_arr_n++*4u);}
+          static JArrM*arrm_get(void*h);
+          typedef struct{int w,h,fmt,refs;}NWin;static NWin g_nwin={640,480,1,1};
+          typedef struct{int action;float x,y;int seq,tool,id;uint64_t when,down;float pres,area;int state;float precision;}MotEv;
+          static MotEv g_mev={0};static int g_have_mev;static int g_injected;static void*motion_obj;static int touch_seq;
+          static void*stream_handle(int i);static void*stream_open(const char*rel);
+          static void* j_NewByteArray(void*e,int len){(void)e;if(len<0)len=0;if(len>16*1024*1024)len=16*1024*1024;return arr_new('B',len);}
+          static void* j_NewBooleanArray(void*e,int len){(void)e;return arr_new('Z',len>0?len:0);}
+          static void* j_NewCharArray(void*e,int len){(void)e;return arr_new('C',len>0?len:0);}
+          static void* j_NewShortArray(void*e,int len){(void)e;return arr_new('S',len>0?len:0);}
+          static void* j_NewIntArray(void*e,int len){(void)e;return arr_new('I',len>0?len:0);}
+          static void* j_NewLongArray(void*e,int len){(void)e;return arr_new('J',len>0?len:0);}
+          static void* j_NewFloatArray(void*e,int len){(void)e;return arr_new('F',len>0?len:0);}
+          static void* j_NewDoubleArray(void*e,int len){(void)e;return arr_new('D',len>0?len:0);}
+          static void* j_GetByteArrayElements(void*e,void*h,uint8_t*c){JArrM*a=arrm_get(h);(void)e;if(c)*c=0;return a&&a->t=='B'?a->data:NULL;}
+          static void j_ReleaseByteArrayElements(void*e,void*h,void*p,int mode){(void)e;(void)h;(void)p;(void)mode;}
+          static void j_GetByteArrayRegion(void*e,void*h,int start,int len,void*out){JArrM*a=arrm_get(h);(void)e;if(!a||a->t!='B'||!out||start<0||len<0||start>a->len||len>a->len-start)return;memcpy(out,(uint8_t*)a->data+start,(size_t)len);}
+          static void j_SetByteArrayRegion(void*e,void*h,int start,int len,const void*in){JArrM*a=arrm_get(h);(void)e;if(!a||a->t!='B'||!in||start<0||len<0||start>a->len||len>a->len-start)return;memcpy((uint8_t*)a->data+start,in,(size_t)len);}
+          typedef int32_t jint;typedef int64_t jlong;typedef uint8_t jboolean;
+          static char *reg_str[8192];static int reg_n,obj_serial;
+          static const void *g_jni_table[256],*g_vm_table[16];
+          static void *g_envobj=(void*)g_jni_table,*g_vmobj=(void*)g_vm_table;
+          static const char*g_jr_n[16];static const void*g_jr_p[16];static unsigned g_jr_i;
+          #define JL(nm,p) do{unsigned _k=g_jr_i++&15u;g_jr_n[_k]=(nm);g_jr_p[_k]=(const void*)(p);}while(0)
+          static void *mk_handle(const char*s){int i;for(i=0;i<reg_n;i++)if(!strcmp(reg_str[i],s))return(void*)(uintptr_t)(0x70000000u+4u*(uint32_t)i);if(reg_n>=8192)return(void*)0x70000000u;reg_str[reg_n]=strdup(s?s:"");return(void*)(uintptr_t)(0x70000000u+4u*(uint32_t)reg_n++);}
+          static const char*h2s(void*h){uintptr_t v=(uintptr_t)h;if(v>=0x70000000u&&(v-0x70000000u)/4u<(uintptr_t)reg_n)return reg_str[(v-0x70000000u)/4u];return "?";}
+          static const char*h2sn(void*h);
+          static void*mk_obj(const char*c){char b[200];snprintf(b,sizeof b,"obj:%s#%d",c,++obj_serial);return mk_handle(b);}
+          typedef struct{char cls[96],name[64],sig[160];int st;unsigned count;}MInfo;static MInfo minfo[1024];static int nminfo;
+          static void*mk_method(const char*c,const char*n,const char*s,int st){int i;for(i=0;i<nminfo;i++)if(!strcmp(minfo[i].cls,c)&&!strcmp(minfo[i].name,n)&&!strcmp(minfo[i].sig,s)&&minfo[i].st==st)return(void*)(uintptr_t)(0x71000000u+4u*(uint32_t)i);if(nminfo>=1024)i=1023;else i=nminfo++;snprintf(minfo[i].cls,sizeof minfo[i].cls,"%s",c);snprintf(minfo[i].name,sizeof minfo[i].name,"%s",n);snprintf(minfo[i].sig,sizeof minfo[i].sig,"%s",s);minfo[i].st=st;return(void*)(uintptr_t)(0x71000000u+4u*(uint32_t)i);}
+          static MInfo*mi_get(void*p){uintptr_t v=(uintptr_t)p;if(v>=0x71000000u&&(v-0x71000000u)/4u<(uintptr_t)nminfo)return &minfo[(v-0x71000000u)/4u];return NULL;}
+          typedef struct{const char*name,*sig;void*fn;}NativeMethod;
+          typedef struct{char cls[96],name[96],sig[192];void*fn;Mod*mod;}Native;
+          static Native g_natives[1400];static int g_nnat;
+          static Mod*mod_of(uintptr_t);
+          static Mod*mod_find_name(const char*);
+          static void*mod_find(const Mod*,const char*);
+          static Native*find_native(const char*c,const char*n){int i;for(i=0;i<g_nnat;i++)if(!strcmp(g_natives[i].name,n)&&(!c||strstr(g_natives[i].cls,c)))return &g_natives[i];return NULL;}
+          static int find_lib_path(const char*nm,char*out,size_t n){
+           char bn[128];const char*b=strrchr(nm?nm:"",'/');
+           char p[512];struct stat st;
+           b=b?b+1:(nm?nm:"");
+           if(!*b)return 0;
+           snprintf(bn,sizeof bn,"%s",b);
+           if(strncmp(bn,"lib",3)||!strstr(bn,".so")){char tmp[128];if(strncmp(bn,"lib",3))snprintf(tmp,sizeof tmp,"lib%s",bn);else snprintf(tmp,sizeof tmp,"%s",bn);if(!strstr(tmp,".so"))snprintf(bn,sizeof bn,"%s.so",tmp);else snprintf(bn,sizeof bn,"%s",tmp);}
+           if(mod_find_name(bn)){snprintf(out,n,"%s/%s",g_libdir,bn);return 1;}
+           snprintf(p,sizeof p,"%s/%s",g_libdir,bn);if(stat(p,&st)==0){snprintf(out,n,"%s",p);return 1;}
+           return 0;
+          }
+          static int collect_va(const char*s,va_list ap,jv*a){const char*p=s+1;int n=0;while(*p&&*p!=')'&&n<16){memset(&a[n],0,sizeof a[n]);while(*p=='[')p++;if(*p=='L'){a[n].l=va_arg(ap,void*);while(*p&&*p!=';')p++;}else if(*p=='J')a[n].j=va_arg(ap,int64_t);else if(*p=='F')a[n].f=(float)va_arg(ap,double);else if(*p=='D')a[n].d=va_arg(ap,double);else a[n].i=va_arg(ap,int);if(*p)p++;n++;}return n;}
+          static void java_invoke(void*mid,void*o,const jv*a,jv*r){MInfo*m=mi_get(mid);const char*rp;char rt;memset(r,0,sizeof*r);if(!m)return;JL("CallMethod",mid);m->count++;rp=strchr(m->sig,')');rt=rp?rp[1]:'V';if(m->count<5)L("[JNI] %s.%s%s\n",m->cls,m->name,m->sig);
+           if(!strcmp(m->name,"getAction"))r->i=g_mev.action;
+           else if(!strcmp(m->name,"getActionMasked"))r->i=g_mev.action&0xff;
+           else if(!strcmp(m->name,"getActionIndex"))r->i=0;
+           else if(!strcmp(m->name,"getX")||!strcmp(m->name,"getRawX"))r->f=g_mev.x;
+           else if(!strcmp(m->name,"getY")||!strcmp(m->name,"getRawY"))r->f=g_mev.y;
+           else if(!strcmp(m->name,"getEventTime"))r->j=(int64_t)g_mev.when;
+           else if(!strcmp(m->name,"getDownTime"))r->j=(int64_t)g_mev.down;
+           else if(!strcmp(m->name,"getPointerCount"))r->i=1;
+           else if(!strcmp(m->name,"getPointerId"))r->i=0;
+           else if(!strcmp(m->name,"getToolType"))r->i=g_mev.tool;
+           else if(!strcmp(m->name,"getDeviceId"))r->i=0;
+           else if(!strcmp(m->name,"getSource"))r->i=0x1002;
+           else if(!strcmp(m->name,"getPressure"))r->f=g_mev.pres;
+           else if(!strcmp(m->name,"getSize"))r->f=g_mev.area;
+           else if(!strcmp(m->name,"getEdgeFlags"))r->i=0;
+           else if(!strcmp(m->name,"getFlags"))r->i=g_mev.state;
+           else if(!strcmp(m->name,"getMetaState"))r->i=0;
+           else if(!strcmp(m->name,"getButtonState"))r->i=0;
+           else if(!strcmp(m->name,"getHistorySize"))r->i=0;
+           else if(!strcmp(m->name,"getHistoricalX")||!strcmp(m->name,"getHistoricalY"))r->f=0.f;
+           else if(!strcmp(m->name,"obtain")&&!strcmp(m->cls,"android/view/MotionEvent"))r->l=motion_obj?motion_obj:mk_obj("android/view/MotionEvent");
+           else if(!strcmp(m->name,"getPath")||!strcmp(m->name,"getAbsolutePath")||!strcmp(m->name,"getCanonicalPath")){r->l=o;}
+           else if(!strcmp(m->name,"getName")){const char*p=o?h2sn(o):"";const char*b=strrchr(p,'/');r->l=mk_handle(b?b+1:p);}
+           else if(!strcmp(m->name,"getParent")){const char*p=o?h2sn(o):"";char b[512];char*s;snprintf(b,sizeof b,"%s",p);s=strrchr(b,'/');if(s&&s!=b)*s=0;else snprintf(b,sizeof b,"%s",p);r->l=mk_handle(b);}
+           else if(!strcmp(m->name,"exists")){r->i=file_exists(o?h2sn(o):"");}
+           else if(!strcmp(m->name,"isDirectory")){struct stat st;const char*p=o?h2sn(o):"";r->i=(stat(p,&st)==0&&S_ISDIR(st.st_mode));}
+           else if(!strcmp(m->name,"isFile")){struct stat st;const char*p=o?h2sn(o):"";r->i=(stat(p,&st)==0&&S_ISREG(st.st_mode));}
+           else if(!strcmp(m->name,"length")){struct stat st;const char*p=o?h2sn(o):"";r->j=(stat(p,&st)==0)?(int64_t)st.st_size:0;}
+           else if(!strcmp(m->name,"lastModified")){struct stat st;const char*p=o?h2sn(o):"";r->j=(stat(p,&st)==0)?(int64_t)st.st_mtime*1000:0;}
+           else if(!strcmp(m->name,"canRead")||!strcmp(m->name,"canWrite")){r->i=1;}
+           else if(!strcmp(m->name,"mkdir")||!strcmp(m->name,"mkdirs")){const char*p=o?h2sn(o):"";r->i=(mkdir(p,0755)==0||errno==EEXIST);}
+           else if(!strcmp(m->name,"delete")){r->i=(unlink(o?h2sn(o):"")==0);}
+           else if(!strcmp(m->name,"list")||!strcmp(m->name,"listFiles")){r->l=NULL;}
+           else if(!strcmp(m->name,"getFreeSpace")||!strcmp(m->name,"getTotalSpace")||!strcmp(m->name,"getUsableSpace")){struct statfs f;const char*p=o?h2sn(o):g_data_dir;if(statfs(p,&f)==0){uint64_t fr=(uint64_t)f.f_bavail*(uint64_t)f.f_bsize,tb=(uint64_t)f.f_blocks*(uint64_t)f.f_bsize;r->j=(int64_t)(!strcmp(m->name,"getTotalSpace")?tb:fr);}else r->j=0;}
+           else if(!strcmp(m->name,"equals")||!strcmp(m->name,"equalsIgnoreCase")){const char*x=o?h2sn(o):NULL,*y=(a&&a[0].l)?h2sn(a[0].l):NULL;if(x&&y)r->i=!strcmp(m->name,"equalsIgnoreCase")?!strcasecmp(x,y):!strcmp(x,y);else r->i=(o==NULL&&(a&&a[0].l==NULL));}
+           else if(!strcmp(m->name,"hashCode")){const char*x=o?h2sn(o):"";unsigned h=0;while(*x)h=h*31u+(unsigned char)*x++;r->i=(int)h;}
+           else if(!strcmp(m->name,"contentEquals")){const char*x=o?h2sn(o):NULL,*y=(a&&a[0].l)?h2sn(a[0].l):NULL;r->i=(x&&y&&!strcmp(x,y));}
+           else if(!strcmp(m->name,"getExternalStorageState"))r->l=mk_handle("mounted");
+           else if(!strcmp(m->name,"getFilesDir")||!strcmp(m->name,"getCacheDir")||!strcmp(m->name,"getExternalFilesDir"))r->l=mk_handle(g_data_dir);
+           else if(!strcmp(m->name,"getPackageName"))r->l=mk_handle("com.letmeeat.game");
+           else if(!strcmp(m->name,"getPackageCodePath")||!strcmp(m->name,"getPackageResourcePath"))r->l=mk_handle(g_package_path);
+           else if(!strcmp(m->name,"getAssets"))r->l=mk_obj("android/content/res/AssetManager");
+           else if(!strcmp(m->name,"open")){const char*rel=h2sn(a[0].l);void*st=stream_open(rel);r->l=st?st:mk_handle("");}
+           else if(!strcmp(m->name,"read")&&strstr(m->cls,"InputStream")){JStr*s=stream_get(o);
+            if(!s){r->i=-1;}
+            else{
+             const char*lp=strchr(m->sig,'(');int nargs=0;JArrM*arr;
+             if(lp){const char*q=lp+1;while(*q&&*q!=')'){if(*q=='[')q++;else if(*q=='L'){while(*q&&*q!=';')q++;if(*q)q++;nargs++;}else{nargs++;if(*q=='J'||*q=='D')q++;else q++;}}}
+             if(nargs>=3&&(arr=arrm_get(a[0].l))&&arr->t=='B'){
+              int off=a[1].i,len=a[2].i,n;
+              if(off<0)off=0;if(len<0)len=0;
+              if(off>arr->len)off=arr->len;if(len>arr->len-off)len=arr->len-off;
+              n=(int)(s->len-s->pos);if(n>len)n=len;
+              if(n>0){memcpy((uint8_t*)arr->data+off,s->data+s->pos,(size_t)n);s->pos+=n;}
+              r->i=(s->pos>=s->len&&n<=0)?-1:n;
+             }else if(nargs==0){
+              r->i=(s->pos<s->len)?(uint8_t)s->data[s->pos++]:-1;
+             }else r->i=-1;
+            }}
+           else if(!strcmp(m->name,"getMainLooper"))r->l=mk_obj("android/os/Looper");
+           else if(!strcmp(m->name,"getLanguageCode"))r->l=mk_handle("en");
+           else if(!strcmp(m->name,"getLibrary")){char p[512];snprintf(p,sizeof p,"%s/lib%s.so",g_libdir,h2sn(a[0].l));r->l=mk_handle(p);}
+           else if(!strcmp(m->name,"findLibrary")){const char*nm=h2sn(a[0].l);char p[512];if(nm&&*nm&&find_lib_path(nm,p,sizeof p)){L("[JNI] findLibrary(\"%s\") -> %s\n",nm,p);r->l=mk_handle(p);}else{L("[JNI] findLibrary(\"%s\") -> NULL (tidak ditemukan)\n",nm?nm:"");r->l=NULL;}}
+           else if(!strcmp(m->name,"getRawAssetFileOffset")||!strcmp(m->name,"getRawAssetFileLength")){char p[800];struct stat st;snprintf(p,sizeof p,"%s/%s",g_assets,h2s(a[0].l));if(!file_exists(p))snprintf(p,sizeof p,"%s/assets/%s",g_game_root,h2s(a[0].l));r->j=stat(p,&st)==0?(!strcmp(m->name,"getRawAssetFileOffset")?0:(int64_t)st.st_size):0;}
+           else if(rt=='L'&&rp&&!strcmp(rp+1,"Ljava/lang/String;"))r->l=mk_handle("");
+           else if(rt=='L'&&rp){char c[128];const char*q=rp+2;size_t k=0;while(*q&&*q!=';'&&k<sizeof(c)-1)c[k++]=*q++;c[k]=0;r->l=mk_obj(c);}
+           else if(rt=='[')r->l=mk_handle("");}
+          #define PREP(mid,ap,a) do{MInfo*_m=mi_get(mid);if(_m)collect_va(_m->sig,ap,a);}while(0)
+          #define DEFCALL(N,T,C,ATTR) ATTR static T j_Call##N##Method(void*e,void*o,void*m,...){va_list ap;jv a[16]={0},r;(void)e;va_start(ap,m);PREP(m,ap,a);va_end(ap);java_invoke(m,o,a,&r);return C;} ATTR static T j_Call##N##MethodV(void*e,void*o,void*m,va_list ap){jv a[16]={0},r;(void)e;PREP(m,ap,a);java_invoke(m,o,a,&r);return C;} ATTR static T j_Call##N##MethodA(void*e,void*o,void*m,const jv*a){jv r;(void)e;java_invoke(m,o,a,&r);return C;} ATTR static T j_CallStatic##N##Method(void*e,void*o,void*m,...){va_list ap;jv a[16]={0},r;(void)e;(void)o;va_start(ap,m);PREP(m,ap,a);va_end(ap);java_invoke(m,o,a,&r);return C;} ATTR static T j_CallStatic##N##MethodV(void*e,void*o,void*m,va_list ap){jv a[16]={0},r;(void)e;(void)o;PREP(m,ap,a);java_invoke(m,o,a,&r);return C;} ATTR static T j_CallStatic##N##MethodA(void*e,void*o,void*m,const jv*a){jv r;(void)e;(void)o;java_invoke(m,o,a,&r);return C;}
+          DEFCALL(Object,void*,r.l,)
+          DEFCALL(Boolean,uint8_t,(uint8_t)r.i,)
+          DEFCALL(Int,int32_t,r.i,)
+          DEFCALL(Long,int64_t,r.j,)
+          DEFCALL(Float,float,r.f,AAPCS)
+          DEFCALL(Double,double,r.d,AAPCS)
+          #define VOIDCALL(N) static void j_Call##N##Method(void*e,void*o,void*m,...){va_list ap;jv a[16]={0},r;(void)e;va_start(ap,m);PREP(m,ap,a);va_end(ap);java_invoke(m,o,a,&r);} static void j_Call##N##MethodV(void*e,void*o,void*m,va_list ap){jv a[16]={0},r;(void)e;PREP(m,ap,a);java_invoke(m,o,a,&r);} static void j_Call##N##MethodA(void*e,void*o,void*m,const jv*a){jv r;(void)e;java_invoke(m,o,a,&r);} static void j_CallStatic##N##Method(void*e,void*o,void*m,...){va_list ap;jv a[16]={0},r;(void)e;(void)o;va_start(ap,m);PREP(m,ap,a);va_end(ap);java_invoke(m,o,a,&r);} static void j_CallStatic##N##MethodV(void*e,void*o,void*m,va_list ap){jv a[16]={0},r;(void)e;(void)o;PREP(m,ap,a);java_invoke(m,o,a,&r);} static void j_CallStatic##N##MethodA(void*e,void*o,void*m,const jv*a){jv r;(void)e;(void)o;java_invoke(m,o,a,&r);}
+          VOIDCALL(Void)
+          static int jni_trap(int i){L("[JNI] slot %d %s belum dipasang\n",i,jni_names[i]);JL(jni_names[i],NULL);return 0;}
+          static int j_GetVersion(void*e){(void)e;return 0x10006;}static void*j_FindClass(void*e,const char*n){(void)e;JL("FindClass",n);return mk_handle(n);}static void*j_GetObjectClass(void*e,void*o){(void)e;JL("GetObjectClass",o);return mk_handle(h2s(o));}
+          static void*j_GetMethodID(void*e,void*c,const char*n,const char*s){(void)e;return mk_method(h2s(c),n,s,0);}static void*j_GetStaticMethodID(void*e,void*c,const char*n,const char*s){(void)e;return mk_method(h2s(c),n,s,1);}static void*j_GetFieldID(void*e,void*c,const char*n,const char*s){(void)e;(void)s;return mk_handle(n);}
+          static void*j_NewObject(void*e,void*c,void*m,...){(void)e;(void)m;return mk_obj(h2s(c));}static void*j_NewObjectV(void*e,void*c,void*m,va_list a){(void)e;(void)m;(void)a;return mk_obj(h2s(c));}static void*j_NewObjectA(void*e,void*c,void*m,const jv*a){(void)e;(void)m;(void)a;return mk_obj(h2s(c));}static void*j_AllocObject(void*e,void*c){(void)e;return mk_obj(h2s(c));}
+          static void*j_ident(void*e,void*o){(void)e;return o;}static void j_void2(void*e,void*o){(void)e;(void)o;}static int j_zero1(void*e){(void)e;return 0;}static int j_zero2(void*e,int a){(void)e;(void)a;return 0;}
+          static void*j_NewStringUTF(void*e,const char*s){(void)e;return mk_handle(s?s:"");}static int j_GetStringUTFLength(void*e,void*s){(void)e;return(int)strlen(h2s(s));}
+          static const char*j_GetStringUTFChars(void*e,void*s,uint8_t*c){uintptr_t v=(uintptr_t)s;char*o;(void)e;if(v<0x70000000u||v>=0x70000000u+8192u*4u){if(c)*c=0;return NULL;}if(c)*c=1;o=strdup(h2sn(s));return o;}
+          static void j_ReleaseStringUTFChars(void*e,void*s,const char*c){(void)e;(void)s;(void)c;}
+          static const char*h2sn(void*h){uintptr_t v=(uintptr_t)h;if(v>=0x70000000u&&(v-0x70000000u)/4u<(uintptr_t)reg_n)return reg_str[(v-0x70000000u)/4u];return "";}
+          static void j_noop2(void*e,void*o){(void)e;(void)o;}
+          static void* j_nullret(void*e,void*o){(void)e;(void)o;return NULL;}
+          static void* j_same(void*e,void*o){(void)e;return o;}
+          static int j_same_q(void*e,void*a,void*b){(void)e;return a==b;}
+          static int j_pushframe(void*e,int c){(void)e;(void)c;return 0;}
+          static void* j_popframe(void*e,void*f){(void)e;(void)f;return NULL;}
+          static void* j_exc(void*e){(void)e;return NULL;}
+          static uint8_t j_inst(void*e,void*o,void*c){(void)e;(void)o;(void)c;return 1;}
+          static void j_mon_noop(void*e,void*o){(void)e;(void)o;}
+          static int j_mon_zero(void*e,void*o){(void)e;(void)o;return 0;}
+          static void* j_weak_ident(void*e,void*o){(void)e;return o;}
+          static int j_globref_chk(void*e,void*o){(void)e;(void)o;return 1;}
+          static const char*sf_val(const char*n){
+           static const char*const t[][2]={{"MANUFACTURER","Anbernic"},{"MODEL","RG40XXV"},{"BRAND","Anbernic"},{"DEVICE","rg40xxv"},{"PRODUCT","rg40xxv"},{"HARDWARE","linux"},{"BOARD","rg40xxv"},{"DISPLAY","rg40xxv"},{"ID","rg40xxv"},{"HOST","localhost"},{"TAGS","release-keys"},{"TYPE","user"},{"USER","user"},{"CPU_ABI","armeabi-v7a"},{"CPU_ABI2",""},{"FINGERPRINT","Anbernic/rg40xxv/rg40xxv:10/QP1A/1:user/release-keys"},{"RELEASE","10"},{"CODENAME","REL"},{"INCREMENTAL","1"},{"MEDIA_MOUNTED","mounted"},{NULL,NULL}};
+           int i;for(i=0;t[i][0];i++)if(!strcmp(t[i][0],n))return t[i][1];return "";}
+          static void* j_GetStaticObjectField(void*e,void*c,void*f){(void)e;(void)c;JL("GetStaticObjectField",f);return mk_handle(sf_val(h2sn(f)));}
+          static int j_GetStaticIntField(void*e,void*c,void*f){const char*n=h2sn(f);(void)e;(void)c;JL("GetStaticIntField",f);if(strstr(n,"SDK_INT")||strstr(n,"VERSION.SDK"))return 30;if(strstr(n,"MODE_PRIVATE"))return 0;return 0;}
+          static int j_GetStringLength(void*e,void*s){(void)e;return(int)strlen(h2sn(s));}
+          static void* j_NewString(void*e,const uint16_t*u,int len){char b[1024];int i,o=0;(void)e;if(!u)return mk_handle("");for(i=0;i<len&&o<1000;i++){unsigned c=u[i];if(c<0x80)b[o++]=(char)c;else if(c<0x800){b[o++]=(char)(0xC0|(c>>6));b[o++]=(char)(0x80|(c&0x3f));}else{b[o++]=(char)(0xE0|(c>>12));b[o++]=(char)(0x80|((c>>6)&0x3f));b[o++]=(char)(0x80|(c&0x3f));}}b[o]=0;return mk_handle(b);}
+          #define SBUF_N 512
+          static uint16_t*g_sbuf[SBUF_N];static int g_sbuf_n;
+          static const uint16_t*j_GetStringChars(void*e,void*s,uint8_t*copy){const char*p=h2sn(s);uint16_t*o;size_t k=0;(void)e;if(copy)*copy=1;o=malloc((strlen(p)+1)*2);if(!o)return NULL;while(*p){unsigned c=(unsigned char)*p++;if(c>=0xE0&&p[0]&&p[1]){c=((c&0xf)<<12)|((unsigned)(p[0]&0x3f)<<6)|(p[1]&0x3f);p+=2;}else if(c>=0xC0&&p[0]){c=((c&0x1f)<<6)|(p[0]&0x3f);p+=1;}o[k++]=(uint16_t)c;}o[k]=0;if(g_sbuf_n<SBUF_N)g_sbuf[g_sbuf_n++]=o;return o;}
+          static void j_ReleaseStringChars(void*e,void*s,const uint16_t*c){(void)e;(void)s;(void)c;}
+          static long j_GetIntField(void*e,void*o,void*f){const char*fn=h2sn(f);(void)e;(void)o;if(strstr(fn,"widthPixels"))return g_nwin.w;if(strstr(fn,"heightPixels"))return g_nwin.h;if(strstr(fn,"densityDpi"))return 160;if(strstr(fn,"SDK_INT"))return 30;if(strstr(fn,"MemoryClass"))return 128;if(strstr(fn,"targetSdkVersion")||strstr(fn,"targetSdk"))return 30;if(strstr(fn,"minSdkVersion")||strstr(fn,"minSdk")||strstr(fn,"minApiLevel"))return 21;if(strstr(fn,"versionCode"))return 1;return 0;}
+          static int64_t j_GetLongField(void*e,void*o,void*f){(void)e;(void)o;(void)f;return 0;}
+          static float j_GetFloatField(void*e,void*o,void*f){const char*fn=h2sn(f);(void)e;(void)o;if(strstr(fn,"density")||strstr(fn,"xdpi")||strstr(fn,"ydpi"))return 160.f;return 0.f;}
+          static double j_GetDoubleField(void*e,void*o,void*f){(void)e;(void)o;(void)f;return 0.0;}
+          static uint8_t j_GetBooleanField(void*e,void*o,void*f){(void)e;(void)o;(void)f;return 0;}
+          static void* j_GetObjectField(void*e,void*o,void*f){const char*fn=h2sn(f);(void)e;(void)o;if(!strcmp(fn,"nativeLibraryDir"))return mk_handle(g_libdir);if(!strcmp(fn,"sourceDir")||!strcmp(fn,"publicSourceDir"))return mk_handle(g_package_path);if(!strcmp(fn,"dataDir")||!strcmp(fn,"deviceProtectedDataDir"))return mk_handle(g_data_dir);if(!strcmp(fn,"packageName"))return mk_handle("com.letmeeat.game");if(!strcmp(fn,"versionName"))return mk_handle("1.0");return NULL;}
+          static void* j_NewObjectArray(void*e,int len,void*cls,void*init){JArrM*a;int i;(void)e;(void)cls;if(g_arr_n>=512)return NULL;a=&g_arrs[g_arr_n];a->t='L';a->len=len>0?len:0;a->data=calloc(a->len?(size_t)a->len:1,sizeof(void*));if(a->data&&init)for(i=0;i<a->len;i++)((void**)a->data)[i]=init;g_arr_n++;return(void*)(uintptr_t)(0x72000000u+(uint32_t)(g_arr_n-1)*4u);}
+          static JArrM*arrm_get(void*h){uintptr_t v=(uintptr_t)h;JArrM*a;if(v<0x72000000u||v>=0x72000000u+512u*4u)return NULL;a=&g_arrs[(v-0x72000000u)/4u];return a->data?a:NULL;}
+          static int j_GetArrayLength(void*e,void*arr){JArrM*a=arrm_get(arr);(void)e;return a?a->len:0;}
+          static void* j_GetObjectArrayElement(void*e,void*arr,int i){JArrM*a=arrm_get(arr);(void)e;if(!a||i<0||i>=a->len)return NULL;return((void**)a->data)[i];}
+          static void j_SetObjectArrayElement(void*e,void*arr,int i,void*v){JArrM*a=arrm_get(arr);(void)e;if(a&&i>=0&&i<a->len)((void**)a->data)[i]=v;}
+          static int j_ExceptionCheck(void*e){(void)e;return 0;}
+          typedef struct{void*addr;long cap;}DBB;static DBB g_dbb[64];static int g_dbb_n;
+          static void* j_NewDirectByteBuffer(void*e,void*addr,long cap){DBB*d;(void)e;if(g_dbb_n>=64)return NULL;d=&g_dbb[g_dbb_n++];if(cap>0&&addr){d->addr=malloc((size_t)cap);if(d->addr)memcpy(d->addr,addr,(size_t)cap);}else d->addr=NULL;d->cap=cap;return(void*)(uintptr_t)(0x73000000u+(uint32_t)(g_dbb_n-1)*4u);}
+          static DBB*dbb_get(void*h){uintptr_t v=(uintptr_t)h;if(v<0x73000000u||v>=0x73000000u+64u*4u)return NULL;return &g_dbb[(v-0x73000000u)/4u];}
+          static void* j_GetDirectBufferAddress(void*e,void*b){DBB*d=dbb_get(b);(void)e;return d?d->addr:NULL;}
+          static long j_GetDirectBufferCapacity(void*e,void*b){DBB*d=dbb_get(b);(void)e;return d?d->cap:0;}static void j_FatalError(void*e,const char*m){(void)e;L("JNI FatalError: %s\n",m?m:"");_exit(6);}static int j_RegisterNatives(void*e,void*c,const NativeMethod*m,int n){int i;(void)e;L("[JNI] RegisterNatives(%s,%d)\n",h2s(c),n);for(i=0;i<n&&g_nnat<1400;i++){Native*x=&g_natives[g_nnat++];snprintf(x->cls,sizeof x->cls,"%s",h2s(c));snprintf(x->name,sizeof x->name,"%s",m[i].name);snprintf(x->sig,sizeof x->sig,"%s",m[i].sig);x->fn=m[i].fn;x->mod=mod_of((uintptr_t)m[i].fn);}return 0;}
+          static int j_GetJavaVM(void*e,void**v){(void)e;*v=(void*)&g_vmobj;return 0;}static int vm_Destroy(void*v){(void)v;return 0;}static int vm_Attach(void*v,void**e,void*a){(void)v;(void)a;*e=(void*)&g_envobj;return 0;}static int vm_GetEnv(void*v,void**e,int ver){(void)v;(void)ver;*e=(void*)&g_envobj;return 0;}
+          #define SETFAM(b,N) do{g_jni_table[b]=(void*)j_Call##N##Method;g_jni_table[b+1]=(void*)j_Call##N##MethodV;g_jni_table[b+2]=(void*)j_Call##N##MethodA;g_jni_table[b+80]=(void*)j_CallStatic##N##Method;g_jni_table[b+81]=(void*)j_CallStatic##N##MethodV;g_jni_table[b+82]=(void*)j_CallStatic##N##MethodA;}while(0)
+
+          static uint32_t b_stack_chk_guard=0x00a4c3e1u;static char bionic_sF[252];static pthread_mutex_t g_initlock=PTHREAD_MUTEX_INITIALIZER;
+          static int *b_errno_ptr(void){return &errno;}static int b_log_write(int p,const char*t,const char*x){L("[droid %d/%s] %s\n",p,t?t:"?",x?x:"");return 1;}
+          static void b_abort_msg(const char*m){L("[droid] android_set_abort_message: %s\n",m?m:"(null)");}
+          static size_t b_strlcpy(char*d,const char*s,size_t n){size_t l=strlen(s),c;if(n){c=l<n-1?l:n-1;memcpy(d,s,c);d[c]=0;}return l;}
+          static size_t b_strlcat(char*d,const char*s,size_t n){size_t a=strnlen(d,n),b=strlen(s),c;if(a<n){c=b<n-a-1?b:n-a-1;memcpy(d+a,s,c);d[a+c]=0;}return a+b;}
+          static size_t b_strlcpy_chk(char*d,const char*s,size_t n,size_t os){if(n>os)abort();return b_strlcpy(d,s,n);}static size_t b_strlcat_chk(char*d,const char*s,size_t n,size_t os){if(n>os)abort();return b_strlcat(d,s,n);}
+          static int b_fdset(int f,void*s,size_t n){if(f<0||(size_t)f>=n*8||f>=FD_SETSIZE){errno=EINVAL;return -1;}FD_SET(f,(fd_set*)s);return 0;}static int b_fdclr(int f,void*s,size_t n){if(f<0||(size_t)f>=n*8||f>=FD_SETSIZE){errno=EINVAL;return -1;}FD_CLR(f,(fd_set*)s);return 0;}static int b_fdisset(int f,const void*s,size_t n){if(f<0||(size_t)f>=n*8||f>=FD_SETSIZE){errno=EINVAL;return 0;}return FD_ISSET(f,(const fd_set*)s);}
+          static int b_mutexattr_init(long*a){*a=0;return 0;}static int b_mutexattr_settype(long*a,int t){*a=t;return 0;}static int b_mutexattr_gettype(const long*a,int*t){*t=(int)*a;return 0;}static int b_mutexattr_destroy(long*a){(void)a;return 0;}
+          static int b_condattr_init(long*a){*a=0;return 0;}static int b_condattr_destroy(long*a){(void)a;return 0;}
+          static int b_sem_trywait(uint32_t*s){return sem_trywait((sem_t*)(uintptr_t)*s);}static int b_attr_detach(uint32_t*s,int d){return pthread_attr_setdetachstate((pthread_attr_t*)(uintptr_t)*s,d);}
+          static int b_thread_detach(uint32_t t){if(t<0x10000u){L("[shim] pthread_detach(0x%x) handle tidak valid -> ESRCH (caller=%p)\n",(unsigned)t,__builtin_return_address(0));return 3;}return pthread_detach((pthread_t)(uintptr_t)t);}static int b_thread_equal(uint32_t a,uint32_t b){return pthread_equal((pthread_t)(uintptr_t)a,(pthread_t)(uintptr_t)b);}static void b_thread_exit(void*v){pthread_exit(v);}static int b_thread_join(uint32_t t,void**v){if(t<0x10000u)return 3;return pthread_join((pthread_t)(uintptr_t)t,v);}static uint32_t b_thread_self(void){return(uint32_t)(uintptr_t)pthread_self();}static int b_thread_keydel(uint32_t k){return pthread_key_delete((pthread_key_t)k);}static int b_thread_once(uint32_t*c,void(*fn)(void)){return pthread_once((pthread_once_t*)c,fn);}
+          static int b_rwlock_init(uint32_t*s,const void*a){pthread_rwlock_t*r=calloc(1,sizeof*r);(void)a;pthread_rwlock_init(r,NULL);*s=U32(r);return 0;}static pthread_rwlock_t*b_rw_get(uint32_t*s){return(pthread_rwlock_t*)(uintptr_t)*s;}static int b_rw_rd(uint32_t*s){return pthread_rwlock_rdlock(b_rw_get(s));}static int b_rw_wr(uint32_t*s){return pthread_rwlock_wrlock(b_rw_get(s));}static int b_rw_un(uint32_t*s){return pthread_rwlock_unlock(b_rw_get(s));}static int b_rw_des(uint32_t*s){if(*s>0xffff){pthread_rwlock_t*r=(void*)(uintptr_t)*s;pthread_rwlock_destroy(r);free(r);}*s=0;return 0;}
+          static int b_sig_suspend(const uint32_t*s){sigset_t h;int i;sigemptyset(&h);for(i=0;i<32;i++)if(*s&(1u<<i))sigaddset(&h,i+1);return sigsuspend(&h);}static void b_sig_alt(const void*a,void*b){sigaltstack((const stack_t*)a,(stack_t*)b);}
+          static int b_android_api(void){return 30;}static void b_choreo(void*a,void*b,void*c){(void)a;(void)b;(void)c;}
+          static int b_isw_l(wint_t c,void*l){(void)l;return iswalpha(c);}static long long b_strtoll_l(const char*s,char**e,int b,void*l){(void)l;return strtoll(s,e,b);}
+          static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return 1;}static int b_locale_noop(void*p){(void)p;return 0;}static int b_locale_set(int c,const char*l){(void)c;(void)l;return 0;}
+          static int b_setjmp(void*p){return _setjmp((struct __jmp_buf_tag*)p);}static void b_longjmp(void*p,int v){longjmp((struct __jmp_buf_tag*)p,v);}
+          static FILE*xf(FILE*f){uintptr_t a=(uintptr_t)f,b=(uintptr_t)bionic_sF;if(a>=b&&a<b+sizeof bionic_sF){unsigned i=(unsigned)((a-b)/84);return i==0?stdin:i==1?stdout:stderr;}return f;}
+          static int b_log_print(int p,const char*t,const char*f,...){char b[1024];va_list a;va_start(a,f);vsnprintf(b,sizeof b,f?f:"",a);va_end(a);return b_log_write(p,t,b);}static int b_log_vprint(int p,const char*t,const char*f,va_list a){char b[1024];vsnprintf(b,sizeof b,f?f:"",a);return b_log_write(p,t,b);}
+          static void b_assert2(const char*f,int l,const char*n,const char*m){L("ASSERT %s:%d %s %s\n",f?f:"?",l,n?n:"?",m?m:"");abort();}static int b_atexit(void*o,void(*d)(void*),void*x){extern int __cxa_atexit(void(*)(void*),void*,void*);return __cxa_atexit(d,o,x);}
+          static int b_fprintf(FILE*f,const char*fmt,...){va_list a;int r;va_start(a,fmt);r=vfprintf(xf(f),fmt,a);va_end(a);return r;}static int b_vfprintf(FILE*f,const char*fmt,va_list a){return vfprintf(xf(f),fmt,a);}static int b_fputs(const char*s,FILE*f){return fputs(s,xf(f));}static int b_fputc(int c,FILE*f){return fputc(c,xf(f));}static size_t b_fwrite(const void*p,size_t s,size_t n,FILE*f){return fwrite(p,s,n,xf(f));}static size_t b_fread(void*p,size_t s,size_t n,FILE*f){return fread(p,s,n,xf(f));}static int b_fflush(FILE*f){return fflush(xf(f));}static char*b_fgets(char*s,int n,FILE*f){return fgets(s,n,xf(f));}static int b_fgetc(FILE*f){return fgetc(xf(f));}
+          static pthread_mutex_t*mx_get(uint32_t*s){uint32_t v=__atomic_load_n(s,__ATOMIC_ACQUIRE);if(v>0xffff)return(pthread_mutex_t*)(uintptr_t)v;pthread_mutex_lock(&g_initlock);v=*s;if(v<=0xffff){pthread_mutex_t*m=calloc(1,sizeof*m);pthread_mutexattr_t a;pthread_mutexattr_init(&a);if(v&0x4000)pthread_mutexattr_settype(&a,PTHREAD_MUTEX_RECURSIVE);pthread_mutex_init(m,&a);pthread_mutexattr_destroy(&a);v=U32(m);__atomic_store_n(s,v,__ATOMIC_RELEASE);}pthread_mutex_unlock(&g_initlock);return(pthread_mutex_t*)(uintptr_t)v;}
+          static int b_mxinit(uint32_t*s,const long*a){pthread_mutex_t*m=calloc(1,sizeof*m);pthread_mutexattr_t x;pthread_mutexattr_init(&x);if(a&&*a==1)pthread_mutexattr_settype(&x,PTHREAD_MUTEX_RECURSIVE);pthread_mutex_init(m,&x);pthread_mutexattr_destroy(&x);*s=U32(m);return 0;}static int b_mxdestroy(uint32_t*s){if(*s>0xffff){pthread_mutex_t*m=(void*)(uintptr_t)*s;pthread_mutex_destroy(m);free(m);}*s=0;return 0;}static int b_mxlock(uint32_t*s){return pthread_mutex_lock(mx_get(s));}static int b_mxunlock(uint32_t*s){return pthread_mutex_unlock(mx_get(s));}static int b_mxtry(uint32_t*s){return pthread_mutex_trylock(mx_get(s));}
+          static pthread_cond_t*cv_get(uint32_t*s){uint32_t v=*s;if(v>0xffff)return(pthread_cond_t*)(uintptr_t)v;pthread_mutex_lock(&g_initlock);v=*s;if(v<=0xffff){pthread_cond_t*c=calloc(1,sizeof*c);pthread_cond_init(c,NULL);v=U32(c);*s=v;}pthread_mutex_unlock(&g_initlock);return(pthread_cond_t*)(uintptr_t)v;}static int b_cvinit(uint32_t*s,const void*a){pthread_cond_t*c=calloc(1,sizeof*c);(void)a;pthread_cond_init(c,NULL);*s=U32(c);return 0;}static int b_cvwait(uint32_t*c,uint32_t*m){return pthread_cond_wait(cv_get(c),mx_get(m));}static int b_cvtimed(uint32_t*c,uint32_t*m,const struct timespec*t){return pthread_cond_timedwait(cv_get(c),mx_get(m),t);}static int b_cvsignal(uint32_t*c){return pthread_cond_signal(cv_get(c));}static int b_cvbroad(uint32_t*c){return pthread_cond_broadcast(cv_get(c));}static int b_cvdes(uint32_t*s){if(*s>0xffff){pthread_cond_t*c=(void*)(uintptr_t)*s;pthread_cond_destroy(c);free(c);}*s=0;return 0;}
+          static int b_attrinit(uint32_t*s){pthread_attr_t*a=calloc(1,sizeof*a);pthread_attr_init(a);*s=U32(a);return 0;}static int b_attrdes(uint32_t*s){pthread_attr_t*a=(void*)(uintptr_t)*s;if(a){pthread_attr_destroy(a);free(a);}*s=0;return 0;}static int b_attrstack(uint32_t*s,size_t z){return pthread_attr_setstacksize((void*)(uintptr_t)*s,z);}typedef struct{void*(*fn)(void*);void*arg;}Thr;static void*thr_start(void*p){Thr t=*(Thr*)p;free(p);{stack_t ss;ss.ss_sp=malloc(1u<<16);ss.ss_size=1u<<16;ss.ss_flags=0;if(ss.ss_sp)sigaltstack(&ss,NULL);}return t.fn(t.arg);}static int b_thrcreate(pthread_t*t,const uint32_t*a,void*(*fn)(void*),void*x){pthread_attr_t local,*pa;int own=0;size_t ss=0;Thr*b=malloc(sizeof* b);if(!b)return 12;b->fn=fn;b->arg=x;if(a&&*a>0xffff)pa=(void*)(uintptr_t)*a;else{pthread_attr_init(&local);pa=&local;own=1;}if(pthread_attr_getstacksize(pa,&ss)==0&&ss<(2u<<20))pthread_attr_setstacksize(pa,8u<<20);{int r=pthread_create(t,pa,thr_start,b);if(own)pthread_attr_destroy(&local);if(r)free(b);return r;}}
+          static int b_sem_init(uint32_t*s,int p,unsigned v){sem_t*x=calloc(1,sizeof*x);sem_init(x,p,v);*s=U32(x);return 0;}static int b_sem_wait(uint32_t*s){return sem_wait((sem_t*)(uintptr_t)*s);}static int b_sem_post(uint32_t*s){return sem_post((sem_t*)(uintptr_t)*s);}static int b_sem_des(uint32_t*s){if(*s){sem_t*x=(void*)(uintptr_t)*s;sem_destroy(x);free(x);}*s=0;return 0;}static int b_sem_get(uint32_t*s,int*v){return sem_getvalue((sem_t*)(uintptr_t)*s,v);}
+          static int b_strerror_r(int e,char*b,size_t n){if(!n)return EINVAL;snprintf(b,n,"%s",strerror(e));return 0;}static long b_sysconf(int n){int k;switch(n){case 0:k=_SC_ARG_MAX;break;case 1:k=_SC_CHILD_MAX;break;case 2:k=_SC_CLK_TCK;break;case 3:k=_SC_NGROUPS_MAX;break;case 4:k=_SC_OPEN_MAX;break;case 0x27:case 0x28:k=_SC_PAGESIZE;break;case 0x60:k=_SC_NPROCESSORS_CONF;break;case 0x61:k=_SC_NPROCESSORS_ONLN;break;case 0x62:k=_SC_PHYS_PAGES;break;case 0x63:k=_SC_AVPHYS_PAGES;break;default:errno=EINVAL;return -1;}return sysconf(k);}
+          static int b_strprop(const char*n,char*v){const char*x="";if(n&&!strcmp(n,"ro.build.version.sdk"))x="30";else if(n&&!strcmp(n,"ro.product.cpu.abi"))x="armeabi-v7a";if(v)memcpy(v,x,strlen(x)+1);return(int)strlen(x);}static void*propfind(const char*n){(void)n;return NULL;}static int propread(const void*p,char*n,char*v){(void)p;if(n)*n=0;if(v)*v=0;return 0;}
+          static int b_regatfork(void(*p)(void),void(*c)(void),void(*d)(void)){(void)p;(void)c;(void)d;return 0;}static int b_ctype_mb(void){return 1;}
+          static int b_sigempty(uint32_t*s){*s=0;return 0;}static int b_sigfill(uint32_t*s){*s=~0u;return 0;}static int b_sigadd(uint32_t*s,int n){if(n>0&&n<=32)*s|=1u<<(n-1);return 0;}static int b_sigdel(uint32_t*s,int n){if(n>0&&n<=32)*s&=~(1u<<(n-1));return 0;}static void mask_to_host(uint32_t x,sigset_t*s){int i;sigemptyset(s);for(i=0;i<32;i++)if(x&(1u<<i))sigaddset(s,i+1);}typedef struct{void*h;uint32_t mask;int flags;void*rest;}BSA;
+          static int b_sigaction(int n,const void*a,void*o){struct sigaction h;const BSA*x=a;memset(&h,0,sizeof h);
+           if(n==11||n==6||n==4||n==7||n==8){if(a)L("[shim] sigaction(%d) dari game ditolak (pakai handler port)\n",n);if(o)memset(o,0,sizeof(BSA));return 0;}
+           if(x){h.sa_handler=x->h;h.sa_flags=x->flags;mask_to_host(x->mask,&h.sa_mask);}return sigaction(n,x?&h:NULL,NULL);}static int b_sigmask(int how,const uint32_t*x,uint32_t*o){sigset_t h,z;if(x)mask_to_host(*x,&h);sigprocmask(how,x?&h:NULL,&z);if(o){uint32_t v=0;int i;for(i=1;i<=32;i++)if(sigismember(&z,i)==1)v|=1u<<(i-1);*o=v;}return 0;}
+          static int b_strcoll_l(const char*a,const char*b,void*l){(void)l;return(size_t)strcoll(a,b);}
+          static int b_stat(const char*p,void*b){return stat64(p,(struct stat64*)b);}
+          static int b_fstat(int fd,void*b){return fstat64(fd,(struct stat64*)b);}
+          static int b_lstat(const char*p,void*b){return lstat64(p,(struct stat64*)b);}
+          typedef struct __attribute__((packed,aligned(8))){uint32_t type,bsize;uint64_t blocks,bfree,bavail,files,ffree;int32_t fsid[2];uint32_t namelen,frsize,flags,spare[4];} BStatfs32;
+          _Static_assert(sizeof(BStatfs32)==88,"bionic ARM32 statfs size");
+          static int b_statfs(const char*p,void*out){struct statfs64 s;BStatfs32 b;int r=statfs64(p,&s);if(r)return r;memset(&b,0,sizeof b);b.type=(uint32_t)s.f_type;b.bsize=(uint32_t)s.f_bsize;b.blocks=s.f_blocks;b.bfree=s.f_bfree;b.bavail=s.f_bavail;b.files=s.f_files;b.ffree=s.f_ffree;b.fsid[0]=s.f_fsid.__val[0];b.fsid[1]=s.f_fsid.__val[1];b.namelen=(uint32_t)s.f_namelen;b.frsize=(uint32_t)s.f_frsize;b.flags=(uint32_t)s.f_flags;memcpy(out,&b,sizeof b);return 0;}
+          static int b_fstatfs(int fd,void*out){struct statfs64 s;BStatfs32 b;int r=fstatfs64(fd,&s);if(r)return r;memset(&b,0,sizeof b);b.type=(uint32_t)s.f_type;b.bsize=(uint32_t)s.f_bsize;b.blocks=s.f_blocks;b.bfree=s.f_bfree;b.bavail=s.f_bavail;b.files=s.f_files;b.ffree=s.f_ffree;b.fsid[0]=s.f_fsid.__val[0];b.fsid[1]=s.f_fsid.__val[1];b.namelen=(uint32_t)s.f_namelen;b.frsize=(uint32_t)s.f_frsize;b.flags=(uint32_t)s.f_flags;memcpy(out,&b,sizeof b);return 0;}
+          static struct dirent64 *b_readdir(DIR*d){return readdir64(d);}
+          static int b_readdir_r(DIR*d,struct dirent64*e,struct dirent64**r){return readdir64_r(d,e,r);}
+          static void b_exit(int c){L("[exit] game memanggil exit(%d)\n",c);fflush(NULL);_exit(c);}
+          static void b_abort_(void){L("[abort] game memanggil abort()\n");abort();}
+          static int b_kill(int pid,int sg){L("[kill] kill(%d,%d)\n",pid,sg);return kill(pid,sg);}
+          static int b_open(const char*p,int fl,...){mode_t m=0;if(fl&O_CREAT){va_list ap;va_start(ap,fl);m=(mode_t)va_arg(ap,int);va_end(ap);}return open64(p,fl,m);}
+          static int b_raise(int sg){L("[raise] raise(%d)\n",sg);return raise(sg);}static void*dummy_locale(int a,const char*b,void*c){(void)a;(void)b;(void)c;return(void*)1;}static void*uselocale_dummy(void*p){(void)p;return(void*)1;}static void locale_free(void*p){(void)p;}
+
+          static int g_looper,g_sensmgr,g_sensq;
+          static void*b_window_from(void*e,void*s){(void)e;(void)s;return &g_nwin;}static int b_winw(void*w){return w?((NWin*)w)->w:640;}static int b_winh(void*w){return w?((NWin*)w)->h:480;}static int b_wingeom(void*w,int a,int b,int c){if(!w)return -1;if(a>0)((NWin*)w)->w=a;if(b>0)((NWin*)w)->h=b;((NWin*)w)->fmt=c;return 0;}static void b_winref(void*w){(void)w;}
+          static void*b_looper(int o){(void)o;return &g_looper;}static void*b_looper_thread(void){return &g_looper;}static int b_poll(int t,int*f,int*e,void**d){if(f)*f=-1;if(e)*e=0;if(d)*d=NULL;if(t>0)usleep((useconds_t)(t>20?20:t)*1000);return -3;}static void b_noop(void*p){(void)p;}static int b_addfd(void*l,int f,int i,int e,void*c,void*d){(void)l;(void)f;(void)i;(void)e;(void)c;(void)d;return 1;}static int b_removefd(void*l,int f){(void)l;(void)f;return 0;}
+          static void*b_sm(void){return &g_sensmgr;}static int b_sensorlist(void*m,const void***l){(void)m;if(l)*l=NULL;return 0;}static void*b_sensor(void*m,int t){(void)m;(void)t;return NULL;}static void*b_sensorq(void*m,void*l,int i,void*c,void*d){(void)m;(void)l;(void)i;(void)c;(void)d;return &g_sensq;}static int b_zero(void){return 0;}static int b_minus(void){return -1;}static float AAPCS b_sres(void*s){(void)s;return 0;}static const char*b_sstr(void*s){(void)s;return "";}
+
+          #define HF1(n) extern float h_##n(float) __asm__(#n);
+          #define HD1(n) extern double h_##n(double) __asm__(#n);
+          #define HF2(n) extern float h_##n(float,float) __asm__(#n);
+          #define HD2(n) extern double h_##n(double,double) __asm__(#n);
+          HF1(sinf) HF1(cosf) HF1(tanf) HF1(acosf) HF1(asinf) HF1(atanf) HF1(sqrtf) HF1(expf) HF1(logf) HF1(log2f) HF1(log10f) HF1(floorf) HF1(ceilf) HF1(fabsf) HF1(roundf) HF1(truncf) HF1(rintf) HF1(cbrtf) HF1(tanhf) HF1(exp2f)
+          HF2(powf) HF2(atan2f) HF2(fmodf) HF2(hypotf) HF2(fmaxf) HF2(fminf)
+          HD1(sin) HD1(cos) HD1(tan) HD1(acos) HD1(asin) HD1(atan) HD1(sqrt) HD1(exp) HD1(log) HD1(log2) HD1(log10) HD1(floor) HD1(ceil) HD1(fabs) HD1(round) HD1(trunc) HD1(rint) HD1(cbrt) HD1(logb) HD1(tanh) HD1(exp2) HD1(sinh)
+          HD2(pow) HD2(atan2) HD2(fmod) HD2(hypot) HD2(fmax) HD2(fmin)
+          #define WF1(n) AAPCS static float w_##n(float x){return h_##n(x);}
+          #define WF2(n) AAPCS static float w_##n(float x,float y){return h_##n(x,y);}
+          #define WD1(n) AAPCS static double w_##n(double x){return h_##n(x);}
+          #define WD2(n) AAPCS static double w_##n(double x,double y){return h_##n(x,y);}
+          WF1(sinf) WF1(cosf) WF1(tanf) WF1(acosf) WF1(asinf) WF1(atanf) WF1(sqrtf) WF1(expf) WF1(logf) WF1(log2f) WF1(log10f) WF1(floorf) WF1(ceilf) WF1(fabsf) WF1(roundf) WF1(truncf) WF1(rintf) WF1(cbrtf) WF1(tanhf) WF1(exp2f)
+          WF2(powf) WF2(atan2f) WF2(fmodf) WF2(hypotf) WF2(fmaxf) WF2(fminf)
+          WD1(sin) WD1(cos) WD1(tan) WD1(acos) WD1(asin) WD1(atan) WD1(sqrt) WD1(exp) WD1(log) WD1(log2) WD1(log10) WD1(floor) WD1(ceil) WD1(fabs) WD1(round) WD1(trunc) WD1(rint) WD1(cbrt) WD1(logb) WD1(tanh) WD1(exp2) WD1(sinh)
+          WD2(pow) WD2(atan2) WD2(fmod) WD2(hypot) WD2(fmax) WD2(fmin)
+          extern float h_ldexpf(float,int) __asm__("ldexpf"); extern double h_ldexp(double,int) __asm__("ldexp");
+          extern float h_scalbnf(float,int) __asm__("scalbnf"); extern double h_scalbn(double,int) __asm__("scalbn");
+          extern float h_modff(float,float*) __asm__("modff"); extern double h_modf(double,double*) __asm__("modf");
+          extern float h_frexpf(float,int*) __asm__("frexpf"); extern double h_frexp(double,int*) __asm__("frexp");
+          extern long h_lrintf(float) __asm__("lrintf"); extern long h_lrint(double) __asm__("lrint");
+          extern long h_lroundf(float) __asm__("lroundf"); extern long h_lround(double) __asm__("lround");
+          extern double h_difftime(time_t,time_t) __asm__("difftime");
+          extern double h_strtod(const char*,char**) __asm__("strtod"); extern float h_strtof(const char*,char**) __asm__("strtof");
+          extern long double h_strtold(const char*,char**) __asm__("strtold");
+          extern double h_wcstod(const wchar_t*,wchar_t**) __asm__("wcstod"); extern float h_wcstof(const wchar_t*,wchar_t**) __asm__("wcstof");
+          extern long double h_wcstold(const wchar_t*,wchar_t**) __asm__("wcstold");
+          AAPCS static float w_ldexpf(float x,int e){return h_ldexpf(x,e);}
+          AAPCS static double w_ldexp(double x,int e){return h_ldexp(x,e);}
+          AAPCS static float w_scalbnf(float x,int e){return h_scalbnf(x,e);}
+          AAPCS static double w_scalbn(double x,int e){return h_scalbn(x,e);}
+          AAPCS static float w_modff(float x,float*ip){return h_modff(x,ip);}
+          AAPCS static double w_modf(double x,double*ip){return h_modf(x,ip);}
+          AAPCS static float w_frexpf(float x,int*e){return h_frexpf(x,e);}
+          AAPCS static double w_frexp(double x,int*e){return h_frexp(x,e);}
+          AAPCS static long w_lrintf(float x){return h_lrintf(x);}
+          AAPCS static long w_lrint(double x){return h_lrint(x);}
+          AAPCS static long w_lroundf(float x){return h_lroundf(x);}
+          AAPCS static long w_lround(double x){return h_lround(x);}
+          AAPCS static double w_difftime(time_t a,time_t b){return h_difftime(a,b);}
+          AAPCS static double w_strtod(const char*s,char**e){return h_strtod(s,e);}
+          AAPCS static float w_strtof(const char*s,char**e){return h_strtof(s,e);}
+          AAPCS static long double w_strtold(const char*s,char**e){return h_strtold(s,e);}
+          AAPCS static double w_wcstod(const wchar_t*s,wchar_t**e){return h_wcstod(s,e);}
+          AAPCS static float w_wcstof(const wchar_t*s,wchar_t**e){return h_wcstof(s,e);}
+          AAPCS static long double w_wcstold(const wchar_t*s,wchar_t**e){return h_wcstold(s,e);}
+          extern void h_sincosf(float,float *,float *) __asm__("sincosf");
+          extern void h_sincos(double,double *,double *) __asm__("sincos");
+          AAPCS static void w_sincosf(float x,float *s,float *c){h_sincosf(x,s,c);}
+          AAPCS static void w_sincos(double x,double *s,double *c){h_sincos(x,s,c);}
+          AAPCS static void w_glClearColor(float a,float b,float c,float d){typedef void(*F)(float,float,float,float);static F f;if(!f)f=(F)dlsym(h_gles,"glClearColor");if(f)f(a,b,c,d);}
+          AAPCS static void w_glClearDepthf(float a){typedef void(*F)(float);static F f;if(!f)f=(F)dlsym(h_gles,"glClearDepthf");if(f)f(a);}
+          AAPCS static void w_glTexParameterf(unsigned a,unsigned b,float c){typedef void(*F)(unsigned,unsigned,float);static F f;if(!f)f=(F)dlsym(h_gles,"glTexParameterf");if(f)f(a,b,c);}
+          AAPCS static void w_glPolygonOffset(float a,float b){typedef void(*F)(float,float);static F f;if(!f)f=(F)dlsym(h_gles,"glPolygonOffset");if(f)f(a,b);}
+          AAPCS static void w_glVertexAttrib4f(unsigned a,float b,float c,float d,float e){typedef void(*F)(unsigned,float,float,float,float);static F f;if(!f)f=(F)dlsym(h_gles,"glVertexAttrib4f");if(f)f(a,b,c,d,e);}
+          #define GLWRAP0(name, args, typ, callargs) AAPCS static void w_##name args {typedef void(*F)typ;static F f;if(!f)f=(F)dlsym(h_gles,#name);if(f)f callargs;}
+          GLWRAP0(glDepthRangef,(float a,float b),(float,float),(a,b))
+          GLWRAP0(glBlendColor,(float a,float b,float c,float d),(float,float,float,float),(a,b,c,d))
+          GLWRAP0(glLineWidth,(float a),(float),(a))
+          GLWRAP0(glSampleCoverage,(float a,unsigned b),(float,unsigned),(a,b))
+          GLWRAP0(glUniform1f,(unsigned a,float b),(unsigned,float),(a,b))
+          GLWRAP0(glUniform2f,(unsigned a,float b,float c),(unsigned,float,float),(a,b,c))
+          GLWRAP0(glUniform3f,(unsigned a,float b,float c,float d),(unsigned,float,float,float),(a,b,c,d))
+          GLWRAP0(glUniform4f,(unsigned a,float b,float c,float d,float e),(unsigned,float,float,float,float),(a,b,c,d,e))
+          GLWRAP0(glVertexAttrib1f,(unsigned a,float b),(unsigned,float),(a,b))
+          GLWRAP0(glVertexAttrib2f,(unsigned a,float b,float c),(unsigned,float,float),(a,b,c))
+          GLWRAP0(glVertexAttrib3f,(unsigned a,float b,float c,float d),(unsigned,float,float,float),(a,b,c,d))
+          GLWRAP0(glSamplerParameterf,(unsigned a,unsigned b,float c),(unsigned,unsigned,float),(a,b,c))
+          #undef GLWRAP0
+
+          static void *sdl_h,*sdl_win,*sdl_ctx;
+          static int(*p_SDL_Init)(uint32_t);static const char*(*p_SDL_GetError)(void);static int(*p_SDL_GL_SetAttribute)(int,int);static void*(*p_SDL_CreateWindow)(const char*,int,int,int,int,uint32_t);static void*(*p_SDL_GL_CreateContext)(void*);static int(*p_SDL_GL_MakeCurrent)(void*,void*);static void(*p_SDL_GL_GetDrawableSize)(void*,int*,int*);static int(*p_SDL_PollEvent)(void*);static int(*p_SDL_GL_SetSwapInterval)(int);
+          static int(*p_SDL_InitSubSystem)(uint32_t);static int(*p_SDL_NumJoysticks)(void);static void*(*p_SDL_JoystickOpen)(int);static const char*(*p_SDL_JoystickNameForIndex)(int);static int(*p_SDL_IsGameController)(int);static void*(*p_SDL_GameControllerOpen)(int);static int(*p_SDL_GameControllerEventState)(int);static void*(*p_SDL_GameControllerFromInstanceID)(int);
+          static int(*r_eglGetError)(void);static void*(*r_eglGetDisplay)(void*);static int(*r_eglInitialize)(void*,int*,int*);static int(*r_eglTerminate)(void*);static int(*r_eglChooseConfig)(void*,const int*,void**,int,int*);static int(*r_eglGetConfigAttrib)(void*,void*,int,int*);static void*(*r_eglCreateContext)(void*,void*,void*,const int*);static int(*r_eglDestroyContext)(void*,void*);static void*(*r_eglCreateWindowSurface)(void*,void*,void*,const int*);static int(*r_eglDestroySurface)(void*,void*);static int(*r_eglMakeCurrent)(void*,void*,void*,void*);static int(*r_eglSwapBuffers)(void*,void*);static const char*(*r_eglQueryString)(void*,int);static int(*r_eglQuerySurface)(void*,void*,int,int*);static int(*r_eglSurfaceAttrib)(void*,void*,int,int);static void*(*r_eglCreatePbufferSurface)(void*,void*,const int*);static void*(*r_eglGetCurrentContext)(void);static void*(*r_eglGetCurrentSurface)(int);static void*(*r_eglGetCurrentDisplay)(void);
+          typedef struct{void*dpy,*ctx,*surf,*cfg;int ok,ctx_given;unsigned long swaps;}Gfx;static Gfx g_gfx;
+          static int gfx_w=640,gfx_h=480;static volatile int g_m2_done,g_m2_ready;static volatile unsigned long g_m2_frames;static void*g_unity_self;static unsigned g_pad_btns;static float g_cur_x=320,g_cur_y=240;static int g_touch_down;
+          static void*host_find(const char*n){void*p;if(h_egl&&(p=dlsym(h_egl,n)))return p;if(h_gles&&(p=dlsym(h_gles,n)))return p;return NULL;}
+          static void*egl_get_display(void*n){return g_gfx.ok?g_gfx.dpy:(r_eglGetDisplay?r_eglGetDisplay(n):NULL);}static int egl_choose(void*d,const int*a,void**c,int z,int*n){if(!g_gfx.ok)return r_eglChooseConfig? r_eglChooseConfig(d,a,c,z,n):0;if(c&&z)c[0]=g_gfx.cfg;if(n)*n=1;return 1;}
+          static void*egl_ctx(void*d,void*c,void*s,const int*a){if(!g_gfx.ok)return r_eglCreateContext(d,c,s,a);if(!g_gfx.ctx_given&&!s){g_gfx.ctx_given=1;return g_gfx.ctx;}return r_eglCreateContext(d,g_gfx.cfg,s,a);}
+          static void*egl_win(void*d,void*c,void*w,const int*a){(void)d;(void)c;(void)w;(void)a;return g_gfx.surf;}
+          static int egl_swap(void*d,void*s){int r;if(!r_eglSwapBuffers)return 0;r=r_eglSwapBuffers(d,s);g_gfx.swaps++;return r;}
+          static int egl_make(void*d,void*a,void*b,void*c){if(!r_eglMakeCurrent)return 0;return r_eglMakeCurrent(d,a,b,c);}
+          static int egl_destroy_s(void*d,void*s){if(g_gfx.ok&&s==g_gfx.surf)return 1;return r_eglDestroySurface?r_eglDestroySurface(d,s):0;}
+          static int egl_destroy_c(void*d,void*c){if(g_gfx.ok&&c==g_gfx.ctx)return 1;return r_eglDestroyContext?r_eglDestroyContext(d,c):0;}
+          static int egl_term(void*d){if(g_gfx.ok&&d==g_gfx.dpy)return 1;return r_eglTerminate?r_eglTerminate(d):0;}
+          static void*egl_pbuffer(void*d,void*c,const int*a){return r_eglCreatePbufferSurface?r_eglCreatePbufferSurface(d,c,a):NULL;}
+          static int egl_getcfg(void*d,void*c,int a,int*v){if(g_gfx.ok&&c==g_gfx.cfg){if(a==0x3028){*v=1;return 1;}}return r_eglGetConfigAttrib?r_eglGetConfigAttrib(d,c,a,v):0;}
+          static int egl_qsurf(void*d,void*s,int a,int*v){if(g_gfx.ok&&s==g_gfx.surf){if(a==0x3057)*v=gfx_w;else if(a==0x3056)*v=gfx_h;else *v=0;return 1;}return r_eglQuerySurface?r_eglQuerySurface(d,s,a,v):0;}
+          static int egl_sattr(void*d,void*s,int a,int v){return r_eglSurfaceAttrib?r_eglSurfaceAttrib(d,s,a,v):0;}
+          static const char*egl_qstr(void*d,int n){return r_eglQueryString?r_eglQueryString(d,n):"";}
+          static int egl_err(void){return r_eglGetError?r_eglGetError():0x3000;}
+          static int egl_init(void*d,int*w,int*h){if(g_gfx.ok){if(w)*w=gfx_w;if(h)*h=gfx_h;return 1;}return r_eglInitialize?r_eglInitialize(d,w,h):0;}
+          static int egl_swapint(void*d,int i){(void)d;(void)i;return 1;}
+          static void*egl_cur_surf(int t){if(g_gfx.ok)return g_gfx.surf;return r_eglGetCurrentSurface?r_eglGetCurrentSurface(t):NULL;}
+          static void*egl_cur_ctx(void){if(g_gfx.ok)return g_gfx.ctx;return r_eglGetCurrentContext?r_eglGetCurrentContext():NULL;}
+          static void*egl_proc(const char*n){
+           if(!strcmp(n,"glClearColor"))return w_glClearColor; if(!strcmp(n,"glClearDepthf"))return w_glClearDepthf;
+           if(!strcmp(n,"glTexParameterf"))return w_glTexParameterf; if(!strcmp(n,"glPolygonOffset"))return w_glPolygonOffset;
+           if(!strcmp(n,"glVertexAttrib4f"))return w_glVertexAttrib4f;
+           if(!strcmp(n,"glDepthRangef"))return w_glDepthRangef; if(!strcmp(n,"glBlendColor"))return w_glBlendColor;
+           if(!strcmp(n,"glLineWidth"))return w_glLineWidth; if(!strcmp(n,"glSampleCoverage"))return w_glSampleCoverage;
+           if(!strcmp(n,"glUniform1f"))return w_glUniform1f; if(!strcmp(n,"glUniform2f"))return w_glUniform2f;
+           if(!strcmp(n,"glUniform3f"))return w_glUniform3f; if(!strcmp(n,"glUniform4f"))return w_glUniform4f;
+           if(!strcmp(n,"glVertexAttrib1f"))return w_glVertexAttrib1f; if(!strcmp(n,"glVertexAttrib2f"))return w_glVertexAttrib2f;
+           if(!strcmp(n,"glVertexAttrib3f"))return w_glVertexAttrib3f; if(!strcmp(n,"glSamplerParameterf"))return w_glSamplerParameterf;
+          #define FP(nm) if(!strcmp(n,#nm))return w_##nm
+          FP(sinf);FP(cosf);FP(tanf);FP(acosf);FP(asinf);FP(atanf);FP(sqrtf);FP(expf);FP(logf);FP(log2f);FP(log10f);FP(floorf);FP(ceilf);FP(fabsf);FP(roundf);FP(truncf);FP(rintf);FP(powf);FP(atan2f);FP(fmodf);FP(hypotf);FP(fmaxf);FP(fminf);FP(sincosf);FP(sin);FP(cos);FP(tan);FP(acos);FP(asin);FP(atan);FP(sqrt);FP(exp);FP(log);FP(log2);FP(log10);FP(floor);FP(ceil);FP(fabs);FP(round);FP(trunc);FP(rint);FP(pow);FP(atan2);FP(fmod);FP(hypot);FP(fmax);FP(fmin);FP(sincos);
+          #undef FP
+           return dlsym(h_gles,n);}
+          static int gfx_setup(void){static const char*paths[]={"libSDL2-2.0.so.0","/usr/lib32/libSDL2-2.0.so.0","libSDL2.so",NULL};int i,w=640,h=480;for(i=0;paths[i]&&!sdl_h;i++)sdl_h=dlopen(paths[i],RTLD_NOW|RTLD_GLOBAL);if(!sdl_h){L("[gfx] SDL2 tidak ada\n");return -1;}
+          #define SYM(n) do{*(void**)&p_##n=dlsym(sdl_h,#n);if(!p_##n){L("[gfx] SDL simbol %s tidak ada\n",#n);return -1;}}while(0)
+          SYM(SDL_Init);SYM(SDL_GetError);SYM(SDL_GL_SetAttribute);SYM(SDL_CreateWindow);SYM(SDL_GL_CreateContext);SYM(SDL_GL_MakeCurrent);SYM(SDL_GL_GetDrawableSize);SYM(SDL_PollEvent);SYM(SDL_GL_SetSwapInterval);SYM(SDL_InitSubSystem);SYM(SDL_NumJoysticks);SYM(SDL_JoystickOpen);SYM(SDL_JoystickNameForIndex);SYM(SDL_IsGameController);SYM(SDL_GameControllerOpen);SYM(SDL_GameControllerEventState);
+          #undef SYM
+           if(p_SDL_Init(0x20)!=0){L("[gfx] SDL_Init: %s\n",p_SDL_GetError());return -1;}p_SDL_GL_SetAttribute(0,8);p_SDL_GL_SetAttribute(1,8);p_SDL_GL_SetAttribute(2,8);p_SDL_GL_SetAttribute(3,0);p_SDL_GL_SetAttribute(5,1);p_SDL_GL_SetAttribute(6,24);p_SDL_GL_SetAttribute(7,8);p_SDL_GL_SetAttribute(17,3);p_SDL_GL_SetAttribute(18,0);p_SDL_GL_SetAttribute(21,4);
+           sdl_win=p_SDL_CreateWindow("Let Me Eat",0x1fff0000,0x1fff0000,640,480,0x2u|0x1001u);if(!sdl_win){L("[gfx] SDL_CreateWindow: %s\n",p_SDL_GetError());return -1;}sdl_ctx=p_SDL_GL_CreateContext(sdl_win);if(!sdl_ctx){L("[gfx] SDL_GL_CreateContext: %s\n",p_SDL_GetError());return -1;}p_SDL_GL_GetDrawableSize(sdl_win,&w,&h);gfx_w=w>0?w:640;gfx_h=h>0?h:480;g_nwin.w=gfx_w;g_nwin.h=gfx_h;
+          #define E(n) (*(void**)&r_##n=dlsym(h_egl,#n))
+           E(eglGetError);E(eglGetDisplay);E(eglInitialize);E(eglTerminate);E(eglChooseConfig);E(eglGetConfigAttrib);E(eglCreateContext);E(eglDestroyContext);E(eglCreateWindowSurface);E(eglDestroySurface);E(eglMakeCurrent);E(eglSwapBuffers);E(eglQueryString);E(eglQuerySurface);E(eglSurfaceAttrib);E(eglCreatePbufferSurface);E(eglGetCurrentContext);E(eglGetCurrentSurface);E(eglGetCurrentDisplay);
+          #undef E
+           if(!r_eglGetCurrentDisplay||!r_eglGetCurrentContext||!r_eglGetCurrentSurface||!r_eglMakeCurrent||!r_eglCreateContext||!r_eglChooseConfig||!r_eglSwapBuffers){L("[gfx] EGL entry point kurang\n");return -1;}
+           g_gfx.dpy=r_eglGetCurrentDisplay();g_gfx.ctx=r_eglGetCurrentContext();g_gfx.surf=r_eglGetCurrentSurface(0x3059);if(!g_gfx.dpy||!g_gfx.ctx||!g_gfx.surf){L("[gfx] SDL EGL context tidak aktif dpy=%p ctx=%p surf=%p\n",g_gfx.dpy,g_gfx.ctx,g_gfx.surf);return -1;}
+           {int id=0,n=0,attrs[3]={0x3028,0,0x3038};if(r_eglGetConfigAttrib)r_eglGetConfigAttrib(g_gfx.dpy,NULL,0x3028,&id);attrs[1]=id;r_eglChooseConfig(g_gfx.dpy,attrs,&g_gfx.cfg,1,&n);if(!n||!g_gfx.cfg){g_gfx.cfg=(void*)1;}}
+           p_SDL_GL_SetSwapInterval(1);p_SDL_GL_MakeCurrent(sdl_win,NULL);g_gfx.ok=1;L("[gfx] SDL2/EGL OK %dx%d dpy=%p ctx=%p surf=%p cfg=%p\n",gfx_w,gfx_h,g_gfx.dpy,g_gfx.ctx,g_gfx.surf,g_gfx.cfg);return 0;}
+
+          static uint64_t touch_down_time;
+          static void build_motion(int action,float x,float y){
+           g_mev.action=action;g_mev.x=x;g_mev.y=y;g_mev.seq=++touch_seq;g_mev.tool=1;g_mev.id=0;
+           g_mev.when=(uint64_t)time(NULL)*1000000ull+(uint64_t)(g_mev.seq%1000000);
+           if(action==0)g_mev.down=g_mev.when;
+           g_mev.pres=1.f;g_mev.area=0.f;g_mev.state=0;g_mev.precision=1.f;
+           g_have_mev=1;
+          }
+          static void send_touch(int down,float x,float y,int move){
+           Native*n=find_native("UnityPlayer","nativeInjectEvent");if(!n||!g_m2_ready||!g_unity_self)return;
+           if(!motion_obj)motion_obj=mk_obj("android/view/MotionEvent");
+           if(!touch_seq)touch_seq=1;
+           if(down&&!move)build_motion(0,x,y);
+           else if(move&&down)build_motion(2,x,y);
+           else if(!down&&!move)build_motion(1,x,y);
+           else return;
+           ((int(*)(void*,void*,void*))n->fn)(&g_envobj,g_unity_self,motion_obj);
+           g_injected++;
+           if(g_injected<=5||g_injected%120==0)L("[input] inject %s @%.0f,%.0f seq=%d total=%d\n",move?"MOVE":down?"DOWN":"UP",x,y,touch_seq,g_injected);
+          }
+          static void in_open_joysticks(void){
+           int i,n;if(!p_SDL_NumJoysticks||!p_SDL_InitSubSystem)return;
+           p_SDL_InitSubSystem(0x200u);
+           n=p_SDL_NumJoysticks();L("[input] %d joystick(s)\n",n);
+           for(i=0;i<n&&i<4;i++){const char*nm=p_SDL_JoystickNameForIndex?p_SDL_JoystickNameForIndex(i):"?";p_SDL_JoystickOpen?p_SDL_JoystickOpen(i):0;L("[input]  joy%d: %s\n",i,nm?nm:"?");}
+           if(p_SDL_GameControllerEventState)p_SDL_GameControllerEventState(1);
+          }
+          static void poll_events(float dt){unsigned char ev[64];uint32_t type;if(!p_SDL_PollEvent)return;while(p_SDL_PollEvent(ev)){memcpy(&type,ev,4);
+           if(type==0x100){g_m2_done=1;continue;}
+           if(type==0x651||type==0x652){int b=ev[12],dn=type==0x651;if(b<32){if(dn)g_pad_btns|=1u<<b;else g_pad_btns&=~(1u<<b);}if(dn&&(b==5||((g_pad_btns&0x50u)==0x50u))){g_m2_done=1;continue;}if(dn&&b==6){g_fps=g_fps==60?30:60;continue;}if(b==0){if(dn&&!g_touch_down){g_touch_down=1;send_touch(1,g_cur_x,g_cur_y,0);}else if(!dn&&g_touch_down){g_touch_down=0;send_touch(0,g_cur_x,g_cur_y,0);}}if(b==11)g_cur_y+=dn?-20:0;if(b==12)g_cur_y+=dn?20:0;if(b==13)g_cur_x+=dn?-20:0;if(b==14)g_cur_x+=dn?20:0;}
+           else if(type==0x650){int16_t v;memcpy(&v,ev+16,2);if(ev[12]==0)g_cur_x+=(float)v/32767.f*260.f*dt;else if(ev[12]==1)g_cur_y+=(float)v/32767.f*260.f*dt;}
+           else if(type==0x602){int h=ev[13];if(h&1)g_cur_y-=18;if(h&4)g_cur_y+=18;if(h&8)g_cur_x-=18;if(h&2)g_cur_x+=18;}
+           else if(type==0x300){uint32_t sym;memcpy(&sym,ev+20,4);if(sym==27)g_m2_done=1;else if(sym==13){if(!g_touch_down){g_touch_down=1;send_touch(1,g_cur_x,g_cur_y,0);}}}
+           else if(type==0x301){uint32_t sym;memcpy(&sym,ev+20,4);if(sym==13&&g_touch_down){g_touch_down=0;send_touch(0,g_cur_x,g_cur_y,0);}}
+           }if(g_touch_down)send_touch(1,g_cur_x,g_cur_y,1);
+           if(g_cur_x<0)g_cur_x=0;if(g_cur_x>gfx_w-1)g_cur_x=gfx_w-1;if(g_cur_y<0)g_cur_y=0;if(g_cur_y>gfx_h-1)g_cur_y=gfx_h-1;}
+
+          static pthread_attr_t*ap_(uint32_t*s){return(*s>0xffffu)?(pthread_attr_t*)(uintptr_t)*s:NULL;}
+          static int b_getattr_np(pthread_t t,uint32_t*s){pthread_attr_t*a=calloc(1,sizeof*a);int r;if(!a)return 12;r=pthread_getattr_np(t,a);if(r){free(a);return r;}*s=U32(a);return 0;}
+          static int b_setname_np(uint32_t t,const char*n){static int c=0;if(c++<3)L("[shim] pthread_setname_np(0x%x,\"%s\") diabaikan\n",(unsigned)t,n?n:"(null)");return 0;}
+          static int b_getname_np(uint32_t t,char*n,size_t z){(void)t;if(n&&z)n[0]=0;return 0;}
+          static int b_attr_getstack(uint32_t*s,void**ad,size_t*sz){pthread_attr_t*a=ap_(s);return a?pthread_attr_getstack(a,ad,sz):22;}
+          static int b_attr_getstacksize(uint32_t*s,size_t*sz){pthread_attr_t*a=ap_(s);return a?pthread_attr_getstacksize(a,sz):22;}
+          static int b_attr_getguardsize(uint32_t*s,size_t*sz){pthread_attr_t*a=ap_(s);return a?pthread_attr_getguardsize(a,sz):22;}
+          static int b_attr_setguardsize(uint32_t*s,size_t sz){pthread_attr_t*a=ap_(s);return a?pthread_attr_setguardsize(a,sz):22;}
+          static int b_attr_getdetach(uint32_t*s,int*d){pthread_attr_t*a=ap_(s);return a?pthread_attr_getdetachstate(a,d):22;}
+          static int b_attr_setstack(uint32_t*s,void*ad,size_t sz){pthread_attr_t*a=ap_(s);return a?pthread_attr_setstack(a,ad,sz):22;}
+          static int b_attr_noop(uint32_t*s,...){(void)s;return 0;}
+          typedef struct{const char*n;void*p;}Shim;
+          static const Shim shim[]={
+           {"__errno",(void*)b_errno_ptr},{"__sF",bionic_sF},{"__stack_chk_guard",&b_stack_chk_guard},{"__register_atfork",(void*)b_regatfork},{"__android_log_print",(void*)b_log_print},{"__android_log_vprint",(void*)b_log_vprint},{"__android_log_write",(void*)b_log_write},{"__assert2",(void*)b_assert2},{"__aeabi_atexit",(void*)b_atexit},{"android_set_abort_message",(void*)b_abort_msg},{"android_get_device_api_level",(void*)b_android_api},
+           {"__system_property_get",(void*)b_strprop},{"__system_property_find",(void*)propfind},{"__system_property_read",(void*)propread},{"__gnu_strerror_r",(void*)b_strerror_r},{"strerror_r",(void*)b_strerror_r},{"sysconf",(void*)b_sysconf},{"__ctype_get_mb_cur_max",(void*)b_ctype_mb},
+           {"fprintf",(void*)b_fprintf},{"vfprintf",(void*)b_vfprintf},{"fputs",(void*)b_fputs},{"fputc",(void*)b_fputc},{"putc",(void*)b_fputc},{"fwrite",(void*)b_fwrite},{"fread",(void*)b_fread},{"fflush",(void*)b_fflush},{"fgets",(void*)b_fgets},{"fgetc",(void*)b_fgetc},{"getc",(void*)b_fgetc},{"stat",(void*)b_stat},{"fstat",(void*)b_fstat},{"lstat",(void*)b_lstat},{"statfs",(void*)b_statfs},{"fstatfs",(void*)b_fstatfs},
+           {"readdir",(void*)b_readdir},{"readdir_r",(void*)b_readdir_r},{"open",(void*)b_open},{"open64",(void*)b_open},{"exit",(void*)b_exit},{"_exit",(void*)b_exit},{"_Exit",(void*)b_exit},{"abort",(void*)b_abort_},{"kill",(void*)b_kill},{"raise",(void*)b_raise},
+           {"pthread_mutex_init",(void*)b_mxinit},{"pthread_mutex_destroy",(void*)b_mxdestroy},{"pthread_mutex_lock",(void*)b_mxlock},{"pthread_mutex_unlock",(void*)b_mxunlock},{"pthread_mutex_trylock",(void*)b_mxtry},{"pthread_mutexattr_init",(void*)b_mutexattr_init},{"pthread_mutexattr_settype",(void*)b_mutexattr_settype},{"pthread_mutexattr_gettype",(void*)b_mutexattr_gettype},{"pthread_mutexattr_destroy",(void*)b_mutexattr_destroy},
+           {"pthread_cond_init",(void*)b_cvinit},{"pthread_cond_wait",(void*)b_cvwait},{"pthread_cond_timedwait",(void*)b_cvtimed},{"pthread_cond_signal",(void*)b_cvsignal},{"pthread_cond_broadcast",(void*)b_cvbroad},{"pthread_cond_destroy",(void*)b_cvdes},{"pthread_condattr_init",(void*)b_condattr_init},{"pthread_condattr_destroy",(void*)b_condattr_destroy},
+           {"pthread_attr_init",(void*)b_attrinit},{"pthread_attr_destroy",(void*)b_attrdes},{"pthread_attr_setstacksize",(void*)b_attrstack},{"pthread_attr_setdetachstate",(void*)b_attr_detach},{"pthread_getattr_np",(void*)b_getattr_np},{"pthread_attr_getstack",(void*)b_attr_getstack},{"pthread_attr_getstacksize",(void*)b_attr_getstacksize},{"pthread_attr_getguardsize",(void*)b_attr_getguardsize},{"pthread_attr_setguardsize",(void*)b_attr_setguardsize},{"pthread_attr_getdetachstate",(void*)b_attr_getdetach},{"pthread_attr_setstack",(void*)b_attr_setstack},{"pthread_attr_setschedparam",(void*)b_attr_noop},{"pthread_attr_setschedpolicy",(void*)b_attr_noop},{"pthread_attr_setscope",(void*)b_attr_noop},{"pthread_attr_setinheritsched",(void*)b_attr_noop},{"pthread_create",(void*)b_thrcreate},{"pthread_detach",(void*)b_thread_detach},{"pthread_equal",(void*)b_thread_equal},{"pthread_setname_np",(void*)b_setname_np},{"pthread_getname_np",(void*)b_getname_np},{"pthread_exit",(void*)b_thread_exit},{"pthread_join",(void*)b_thread_join},{"pthread_self",(void*)b_thread_self},{"pthread_key_delete",(void*)b_thread_keydel},{"pthread_once",(void*)b_thread_once},
+           {"pthread_rwlock_init",(void*)b_rwlock_init},{"pthread_rwlock_rdlock",(void*)b_rw_rd},{"pthread_rwlock_wrlock",(void*)b_rw_wr},{"pthread_rwlock_unlock",(void*)b_rw_un},{"pthread_rwlock_destroy",(void*)b_rw_des},
+           {"sem_init",(void*)b_sem_init},{"sem_wait",(void*)b_sem_wait},{"sem_trywait",(void*)b_sem_trywait},{"sem_post",(void*)b_sem_post},{"sem_destroy",(void*)b_sem_des},{"sem_getvalue",(void*)b_sem_get},
+           {"sigaction",(void*)b_sigaction},{"sigprocmask",(void*)b_sigmask},{"pthread_sigmask",(void*)b_sigmask},{"sigemptyset",(void*)b_sigempty},{"sigfillset",(void*)b_sigfill},{"sigaddset",(void*)b_sigadd},{"sigdelset",(void*)b_sigdel},{"sigsuspend",(void*)b_sig_suspend},{"sigaltstack",(void*)b_sig_alt},{"setjmp",(void*)b_setjmp},{"_setjmp",(void*)b_setjmp},{"sigsetjmp",(void*)b_setjmp},{"__sigsetjmp",(void*)b_setjmp},{"longjmp",(void*)b_longjmp},{"_longjmp",(void*)b_longjmp},{"siglongjmp",(void*)b_longjmp},
+           {"dlopen",(void*)b_dlopen},{"dlsym",(void*)b_dlsym},{"dlclose",(void*)b_dlclose},{"dlerror",(void*)b_dlerror},{"dladdr",(void*)b_dladdr},{"dl_iterate_phdr",(void*)b_dl_iterate_phdr},{"dl_unwind_find_exidx",(void*)b_dl_unwind_find_exidx},
+           {"newlocale",(void*)b_newlocale},{"uselocale",(void*)b_locale_noop},{"freelocale",(void*)b_locale_noop},{"localeconv",(void*)b_locale_noop},{"setlocale",(void*)b_locale_set},{"strcoll_l",(void*)b_strcoll_l},{"strxfrm_l",(void*)b_strcoll_l},{"wcscoll_l",(void*)b_strcoll_l},{"wcsxfrm_l",(void*)b_strcoll_l},{"iswspace_l",(void*)b_isw_l},{"iswprint_l",(void*)b_isw_l},{"iswcntrl_l",(void*)b_isw_l},{"iswupper_l",(void*)b_isw_l},{"iswlower_l",(void*)b_isw_l},{"iswalpha_l",(void*)b_isw_l},{"iswdigit_l",(void*)b_isw_l},{"iswxdigit_l",(void*)b_isw_l},{"iswpunct_l",(void*)b_isw_l},{"iswblank_l",(void*)b_isw_l},{"towupper_l",(void*)b_isw_l},{"towlower_l",(void*)b_isw_l},{"strtoll_l",(void*)b_strtoll_l},{"strtoull_l",(void*)b_strtoull_l},{"strtold_l",(void*)b_strtold_l},{"strftime_l",(void*)b_strtoll_l},
+           {"__FD_SET_chk",(void*)b_fdset},{"__FD_CLR_chk",(void*)b_fdclr},{"__FD_ISSET_chk",(void*)b_fdisset},{"strlcpy",(void*)b_strlcpy},{"strlcat",(void*)b_strlcat},{"__strlcpy_chk",(void*)b_strlcpy_chk},{"__strlcat_chk",(void*)b_strlcat_chk},
+           {"ANativeWindow_fromSurface",(void*)b_window_from},{"ANativeWindow_getWidth",(void*)b_winw},{"ANativeWindow_getHeight",(void*)b_winh},{"ANativeWindow_setBuffersGeometry",(void*)b_wingeom},{"ANativeWindow_acquire",(void*)b_winref},{"ANativeWindow_release",(void*)b_winref},{"ALooper_prepare",(void*)b_looper},{"ALooper_forThread",(void*)b_looper_thread},{"ALooper_pollOnce",(void*)b_poll},{"ALooper_pollAll",(void*)b_poll},{"ALooper_addFd",(void*)b_addfd},{"ALooper_removeFd",(void*)b_removefd},{"ALooper_wake",(void*)b_noop},{"ALooper_acquire",(void*)b_noop},{"ALooper_release",(void*)b_noop},
+           {"ASensorManager_getInstance",(void*)b_sm},{"ASensorManager_getInstanceForPackage",(void*)b_sm},{"ASensorManager_getSensorList",(void*)b_sensorlist},{"ASensorManager_getDefaultSensor",(void*)b_sensor},{"ASensorManager_createEventQueue",(void*)b_sensorq},{"ASensorManager_destroyEventQueue",(void*)b_zero},{"ASensorEventQueue_enableSensor",(void*)b_minus},{"ASensorEventQueue_disableSensor",(void*)b_minus},{"ASensorEventQueue_setEventRate",(void*)b_minus},{"ASensorEventQueue_hasEvents",(void*)b_zero},{"ASensorEventQueue_getEvents",(void*)b_zero},{"ASensor_getType",(void*)b_zero},{"ASensor_getResolution",(void*)b_sres},{"ASensor_getMinDelay",(void*)b_zero},{"ASensor_getName",(void*)b_sstr},{"ASensor_getVendor",(void*)b_sstr},
+           {"AChoreographer_getInstance",(void*)b_noop},{"AChoreographer_postFrameCallback",(void*)b_choreo},{"AChoreographer_postFrameCallback64",(void*)b_choreo},
+           {"eglGetDisplay",(void*)egl_get_display},{"eglChooseConfig",(void*)egl_choose},{"eglCreateContext",(void*)egl_ctx},{"eglCreateWindowSurface",(void*)egl_win},{"eglSwapBuffers",(void*)egl_swap},{"eglMakeCurrent",(void*)egl_make},{"eglDestroySurface",(void*)egl_destroy_s},{"eglDestroyContext",(void*)egl_destroy_c},{"eglTerminate",(void*)egl_term},{"eglCreatePbufferSurface",(void*)egl_pbuffer},{"eglGetConfigAttrib",(void*)egl_getcfg},{"eglQuerySurface",(void*)egl_qsurf},{"eglSurfaceAttrib",(void*)egl_sattr},{"eglQueryString",(void*)egl_qstr},{"eglGetError",(void*)egl_err},{"eglGetProcAddress",(void*)egl_proc},{"eglInitialize",(void*)egl_init},{"eglSwapInterval",(void*)egl_swapint},{"eglGetCurrentSurface",(void*)egl_cur_surf},{"eglGetCurrentContext",(void*)egl_cur_ctx},
+           {"sinf",(void*)w_sinf},{"cosf",(void*)w_cosf},{"tanf",(void*)w_tanf},{"acosf",(void*)w_acosf},{"asinf",(void*)w_asinf},{"atanf",(void*)w_atanf},{"sqrtf",(void*)w_sqrtf},{"expf",(void*)w_expf},{"exp2f",(void*)w_exp2f},{"logf",(void*)w_logf},{"log2f",(void*)w_log2f},{"log10f",(void*)w_log10f},{"floorf",(void*)w_floorf},{"ceilf",(void*)w_ceilf},{"fabsf",(void*)w_fabsf},{"roundf",(void*)w_roundf},{"truncf",(void*)w_truncf},{"rintf",(void*)w_rintf},{"cbrtf",(void*)w_cbrtf},{"tanhf",(void*)w_tanhf},{"powf",(void*)w_powf},{"atan2f",(void*)w_atan2f},{"fmodf",(void*)w_fmodf},{"hypotf",(void*)w_hypotf},{"fmaxf",(void*)w_fmaxf},{"fminf",(void*)w_fminf},{"sincosf",(void*)w_sincosf},{"ldexpf",(void*)w_ldexpf},{"scalbnf",(void*)w_scalbnf},{"modff",(void*)w_modff},{"frexpf",(void*)w_frexpf},{"lrintf",(void*)w_lrintf},{"lroundf",(void*)w_lroundf},{"strtof",(void*)w_strtof},{"wcstof",(void*)w_wcstof},
+           {"sin",(void*)w_sin},{"cos",(void*)w_cos},{"tan",(void*)w_tan},{"acos",(void*)w_acos},{"asin",(void*)w_asin},{"atan",(void*)w_atan},{"sqrt",(void*)w_sqrt},{"exp",(void*)w_exp},{"exp2",(void*)w_exp2},{"log",(void*)w_log},{"log2",(void*)w_log2},{"log10",(void*)w_log10},{"floor",(void*)w_floor},{"ceil",(void*)w_ceil},{"fabs",(void*)w_fabs},{"round",(void*)w_round},{"trunc",(void*)w_trunc},{"rint",(void*)w_rint},{"cbrt",(void*)w_cbrt},{"tanh",(void*)w_tanh},{"sinh",(void*)w_sinh},{"logb",(void*)w_logb},{"pow",(void*)w_pow},{"atan2",(void*)w_atan2},{"fmod",(void*)w_fmod},{"hypot",(void*)w_hypot},{"fmax",(void*)w_fmax},{"fmin",(void*)w_fmin},{"sincos",(void*)w_sincos},{"ldexp",(void*)w_ldexp},{"scalbn",(void*)w_scalbn},{"modf",(void*)w_modf},{"frexp",(void*)w_frexp},{"lrint",(void*)w_lrint},{"lround",(void*)w_lround},{"difftime",(void*)w_difftime},{"strtod",(void*)w_strtod},{"strtold",(void*)w_strtold},{"wcstod",(void*)w_wcstod},{"wcstold",(void*)w_wcstold},
+           {"glClearColor",(void*)w_glClearColor},{"glClearDepthf",(void*)w_glClearDepthf},{"glTexParameterf",(void*)w_glTexParameterf},{"glPolygonOffset",(void*)w_glPolygonOffset},{"glVertexAttrib4f",(void*)w_glVertexAttrib4f},
+          {"glDepthRangef",(void*)w_glDepthRangef},{"glBlendColor",(void*)w_glBlendColor},{"glLineWidth",(void*)w_glLineWidth},{"glSampleCoverage",(void*)w_glSampleCoverage},{"glUniform1f",(void*)w_glUniform1f},{"glUniform2f",(void*)w_glUniform2f},{"glUniform3f",(void*)w_glUniform3f},{"glUniform4f",(void*)w_glUniform4f},{"glVertexAttrib1f",(void*)w_glVertexAttrib1f},{"glVertexAttrib2f",(void*)w_glVertexAttrib2f},{"glVertexAttrib3f",(void*)w_glVertexAttrib3f},{"glSamplerParameterf",(void*)w_glSamplerParameterf},
+           {NULL,NULL}};
+
+          static int read_file(const char*p,uint8_t**b,size_t*n){FILE*f=fopen(p,"rb");long z;if(!f)return-1;fseek(f,0,SEEK_END);z=ftell(f);fseek(f,0,SEEK_SET);if(z<=0){fclose(f);return-1;}*b=malloc((size_t)z);if(!*b||fread(*b,1,(size_t)z,f)!=(size_t)z){fclose(f);return-1;}fclose(f);*n=(size_t)z;return 0;}
+          static int load_mod(const char*d,const char*n,Mod**out){char p[512];Mod*m;const Elf32_Ehdr*eh;const Elf32_Phdr*ph;uint32_t lo=0xffffffffu,hi=0;int i,found=0;if(nmods>=MAXMOD)return-1;m=&mods[nmods];memset(m,0,sizeof*m);snprintf(m->name,sizeof m->name,"%s",n);snprintf(p,sizeof p,"%s/%s",d,n);if(read_file(p,&m->file,&m->fsize))return-1;eh=(void*)m->file;if(memcmp(eh->e_ident,ELFMAG,SELFMAG)||eh->e_ident[EI_CLASS]!=ELFCLASS32||eh->e_machine!=EM_ARM||eh->e_type!=ET_DYN){L("%s bukan ELF ARM32\n",n);return-1;}ph=(void*)(m->file+eh->e_phoff);m->ph=ph;m->nph=eh->e_phnum;for(i=0;i<eh->e_phnum;i++)if(ph[i].p_type==PT_LOAD){if(ph[i].p_vaddr<lo)lo=ph[i].p_vaddr;if(ph[i].p_vaddr+ph[i].p_memsz>hi)hi=ph[i].p_vaddr+ph[i].p_memsz;}lo&=~(PAGE-1);hi=(hi+PAGE-1)&~(PAGE-1);m->span=hi-lo;m->base=mmap(NULL,m->span,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);if(m->base==MAP_FAILED)return-1;m->bias=(uintptr_t)m->base-lo;for(i=0;i<eh->e_phnum;i++){if(ph[i].p_type==PT_LOAD)memcpy((void*)(m->bias+ph[i].p_vaddr),m->file+ph[i].p_offset,ph[i].p_filesz);if(ph[i].p_type==PT_ARM_EXIDX){m->exidx=ph[i].p_vaddr;m->exidx_sz=ph[i].p_memsz;}if(ph[i].p_type==PT_TLS)m->ntls++;if(ph[i].p_type==PT_DYNAMIC){Elf32_Dyn*x=(void*)(m->bias+ph[i].p_vaddr);found=1;for(;x->d_tag!=DT_NULL;x++)switch(x->d_tag){case DT_SYMTAB:m->sym=(void*)(m->bias+x->d_un.d_ptr);break;case DT_STRTAB:m->str=(void*)(m->bias+x->d_un.d_ptr);break;case DT_REL:m->rel=(void*)(m->bias+x->d_un.d_ptr);break;case DT_RELSZ:m->nrel=x->d_un.d_val/sizeof(Elf32_Rel);break;case DT_JMPREL:m->jrel=(void*)(m->bias+x->d_un.d_ptr);break;case DT_PLTRELSZ:m->njrel=x->d_un.d_val/sizeof(Elf32_Rel);break;case DT_INIT:m->init=x->d_un.d_val;break;case DT_INIT_ARRAY:m->iarr=(void*)(m->bias+x->d_un.d_ptr);break;case DT_INIT_ARRAYSZ:m->niarr=x->d_un.d_val/4;break;case DT_RELA:case 0x6000000f:case 0x60000011:case 36:L("unsupported dynamic tag %u\n",(unsigned)x->d_tag);return-1;default:break;}}}if(!found||!m->sym||!m->str)return-1;if(eh->e_shoff){Elf32_Shdr*sh=(void*)(m->file+eh->e_shoff);for(i=0;i<eh->e_shnum;i++)if(sh[i].sh_type==SHT_DYNSYM)m->nsym=sh[i].sh_size/sizeof(Elf32_Sym);}if(m->nsym<=0)return-1;nmods++;*out=m;L("[load] %s base=%p span=0x%zx rel=%u plt=%u init=%u exidx=%u\n",n,m->base,m->span,m->nrel,m->njrel,m->niarr,m->exidx_sz);return 0;}
+          static Mod*mod_of(uintptr_t a){int i;for(i=0;i<nmods;i++)if(a>=(uintptr_t)mods[i].base&&a<(uintptr_t)mods[i].base+mods[i].span)return &mods[i];return NULL;}static Mod*mod_find_name(const char*n){int i;for(i=0;i<nmods;i++)if(!strcmp(mods[i].name,n))return &mods[i];return NULL;}static void*mod_find(const Mod*m,const char*n){int i;for(i=1;i<m->nsym;i++){Elf32_Sym*s=&m->sym[i];if(s->st_shndx!=SHN_UNDEF&&s->st_name&&!strcmp(m->str+s->st_name,n))return(void*)(m->bias+s->st_value);}return NULL;}
+          static int b_dl_iterate_phdr(int(*cb)(struct dl_phdr_info*,size_t,void*),void*d){int i,r;for(i=0;i<nmods;i++){struct dl_phdr_info x;memset(&x,0,sizeof x);x.dlpi_addr=mods[i].bias;x.dlpi_name=mods[i].name;x.dlpi_phdr=mods[i].ph;x.dlpi_phnum=mods[i].nph;r=cb(&x,sizeof x,d);if(r)return r;}return dl_iterate_phdr(cb,d);}static void*b_dl_unwind_find_exidx(uintptr_t pc,int*n){Mod*m=mod_of(pc);if(!m){if(n)*n=0;return NULL;}if(n)*n=(int)(m->exidx_sz/8);return(void*)(m->bias+m->exidx);}static void*b_dladdr(void*a,void*i){Dl_info*d=i;memset(d,0,sizeof*d);return(void*)(uintptr_t)dladdr(a,d);}
+          static Mod*handle_to_mod(void*h){int i;for(i=0;i<nmods;i++)if(h==(void*)&mods[i])return &mods[i];return NULL;}
+          static void*g_main_h;
+          static void*b_dlopen(const char*p,int f){
+           const char*b;Mod*m;
+           if(!p){if(g_main_h)return g_main_h;L("[shim] dlopen(NULL) -> handle utama\n");return g_main_h=(void*)&mods[0];}
+           if(!*p){L("[shim] dlopen(\"\") -> NULL\n");return NULL;}
+           b=strrchr(p,'/');
+           if(!strncmp(p,"libGLES",7)&&h_gles)return h_gles;
+           if(!strncmp(p,"libEGL",6)&&h_egl)return h_egl;
+           m=mod_find_name(b?b+1:p);
+           if(m){L("[shim] dlopen(\"%s\") -> modul game yang sudah dimuat (%s)\n",p,m->name);return(void*)m;}
+           L("[shim] dlopen(\"%s\") -> host\n",p);
+           return dlopen(p,f?f:RTLD_LAZY);}
+          static void*b_dlsym(void*h,const char*n){Mod*m;void*p;
+           if(!h||h==RTLD_DEFAULT||h==(void*)-1||h==(void*)-2||h==g_main_h){
+            int i;for(i=0;i<nmods;i++)if((p=mod_find(&mods[i],n)))return p;
+            for(i=0;shim[i].n;i++)if(!strcmp(shim[i].n,n))return shim[i].p;
+            if(h_gles&&(p=dlsym(h_gles,n)))return p;
+            if(h_egl&&(p=dlsym(h_egl,n)))return p;
+            return dlsym(RTLD_DEFAULT,n);}
+           if(h==h_gles){int i;for(i=0;shim[i].n;i++)if(!strcmp(shim[i].n,n))return shim[i].p;return dlsym(h_gles,n);}
+           m=handle_to_mod(h);
+           if(m){void*r=mod_find(m,n);if(r)return r;
+            {int i;for(i=0;i<nmods;i++)if(&mods[i]!=m&&(r=mod_find(&mods[i],n))){L("[shim] dlsym(%s, \"%s\") -> dari modul lain (%s)\n",m->name,n,mods[i].name);return r;}}
+            return NULL;}
+           return dlsym(h,n);}
+          static int b_dlclose(void*h){return handle_to_mod(h)?0:dlclose(h);}static char*b_dlerror(void){return dlerror();}
+          static uint32_t resolve(Mod*self,const Elf32_Sym*s){const char*n=self->str+s->st_name;int i;void*p;if(s->st_shndx!=SHN_UNDEF){cnt_self++;return U32(self->bias+s->st_value);}for(i=0;i<nmods;i++)if(&mods[i]!=self&&(p=mod_find(&mods[i],n))){cnt_mod++;return U32(p);}for(i=0;shim[i].n;i++)if(!strcmp(shim[i].n,n)){cnt_shim++;if(nshim_hit<512)shim_hit[nshim_hit++]=shim[i].n;return U32(shim[i].p);}if((p=dlsym(RTLD_DEFAULT,n))){cnt_libc++;return U32(p);}if(h_z&&(p=dlsym(h_z,n))){cnt_libc++;return U32(p);}if(h_egl&&(p=dlsym(h_egl,n))){cnt_gl++;return U32(p);}if(h_gles&&(p=dlsym(h_gles,n))){cnt_gl++;return U32(p);}if(ELF32_ST_BIND(s->st_info)==STB_WEAK){cnt_weak0++;return 0;}for(i=0;i<nunres;i++)if(!strcmp(unres_name[i],n))return U32(tstubs[i]);cnt_unres++;if(nunres<MAXUNRES){unres_name[nunres]=n;return U32(tstubs[nunres++]);}return U32(tstubs[MAXUNRES-1]);}
+          static int relocate(Mod*m){int pass,bad=0;for(pass=0;pass<2;pass++){Elf32_Rel*r=pass?m->jrel:m->rel;uint32_t n=pass?m->njrel:m->nrel,k;for(k=0;k<n;k++){uint32_t t=ELF32_R_TYPE(r[k].r_info),s=ELF32_R_SYM(r[k].r_info);uint32_t*w=(void*)(m->bias+r[k].r_offset);if(t==R_ARM_NONE)continue;if(t==R_ARM_RELATIVE)*w+=U32(m->bias);else if(t==R_ARM_ABS32){if(s)*w+=resolve(m,&m->sym[s]);}else if(t==R_ARM_GLOB_DAT||t==R_ARM_JUMP_SLOT)*w=resolve(m,&m->sym[s]);else{L("reloc unsupported %u\n",t);bad++;}}}return bad;}
+          static void protect(Mod*m){const Elf32_Ehdr*e=(void*)m->file;const Elf32_Phdr*p=(void*)(m->file+e->e_phoff);size_t n=m->span/PAGE,i;unsigned char*f=calloc(n,1);int k;if(!f)return;__builtin___clear_cache((char*)m->base,(char*)m->base+m->span);for(k=0;k<e->e_phnum;k++)if(p[k].p_type==PT_LOAD){uintptr_t a=(m->bias+p[k].p_vaddr)&~(uintptr_t)(PAGE-1),z=(m->bias+p[k].p_vaddr+p[k].p_memsz+PAGE-1)&~(uintptr_t)(PAGE-1);int pr=((p[k].p_flags&PF_R)?PROT_READ:0)|((p[k].p_flags&PF_W)?PROT_WRITE:0)|((p[k].p_flags&PF_X)?PROT_EXEC:0);for(;a<z;a+=PAGE)f[(a-(uintptr_t)m->base)/PAGE]|=(unsigned char)pr;}for(i=0;i<n;){size_t j=i+1;while(j<n&&f[j]==f[i])j++;if(f[i])mprotect(m->base+i*PAGE,(j-i)*PAGE,f[i]);i=j;}free(f);}
+          static void run_init(Mod*m){uint32_t i;if(m->init)((void(*)(void))(m->bias+m->init))();for(i=0;i<m->niarr;i++)if(m->iarr[i]&&m->iarr[i]!=0xffffffffu)((void(*)(void))(uintptr_t)m->iarr[i])();}
+
+          static int j_Register(void*e,void*c,const NativeMethod*m,int n){int i;(void)e;for(i=0;i<n&&g_nnat<1400;i++){Native*x=&g_natives[g_nnat++];snprintf(x->cls,sizeof x->cls,"%s",h2s(c));snprintf(x->name,sizeof x->name,"%s",m[i].name);snprintf(x->sig,sizeof x->sig,"%s",m[i].sig);x->fn=m[i].fn;x->mod=mod_of((uintptr_t)m[i].fn);}L("[JNI] RegisterNatives(%s, %d)\n",h2s(c),n);return 0;}
+          static void init_jni_table(void){int i;for(i=0;i<256;i++)g_jni_table[i]=jstubs[i];g_jni_table[4]=j_GetVersion;g_jni_table[6]=j_FindClass;g_jni_table[27]=j_AllocObject;g_jni_table[28]=j_NewObject;g_jni_table[29]=j_NewObjectV;g_jni_table[30]=j_NewObjectA;g_jni_table[31]=j_GetObjectClass;g_jni_table[33]=j_GetMethodID;SETFAM(34,Object);SETFAM(37,Boolean);SETFAM(49,Int);SETFAM(52,Long);SETFAM(55,Float);SETFAM(58,Double);SETFAM(61,Void);g_jni_table[94]=j_GetFieldID;g_jni_table[113]=j_GetStaticMethodID;g_jni_table[144]=j_GetFieldID;g_jni_table[167]=j_NewStringUTF;g_jni_table[168]=j_GetStringUTFLength;g_jni_table[169]=j_GetStringUTFChars;g_jni_table[170]=j_ReleaseStringUTFChars;g_jni_table[215]=j_Register;g_jni_table[219]=j_GetJavaVM;g_jni_table[228]=j_ExceptionCheck;g_jni_table[18]=j_FatalError;
+          g_jni_table[13]=j_zero1;g_jni_table[15]=j_exc;g_jni_table[16]=j_noop2;g_jni_table[17]=j_noop2;g_jni_table[19]=j_pushframe;g_jni_table[20]=j_popframe;g_jni_table[21]=j_same;g_jni_table[22]=j_noop2;g_jni_table[23]=j_noop2;g_jni_table[24]=j_same_q;g_jni_table[25]=j_same;g_jni_table[26]=j_zero1;
+          g_jni_table[163]=j_NewString;g_jni_table[164]=j_GetStringLength;g_jni_table[165]=j_GetStringChars;g_jni_table[166]=j_ReleaseStringChars;
+          g_jni_table[95]=j_GetObjectField;g_jni_table[96]=j_GetBooleanField;g_jni_table[100]=j_GetIntField;g_jni_table[101]=j_GetLongField;g_jni_table[102]=j_GetFloatField;g_jni_table[103]=j_GetDoubleField;
+          g_jni_table[145]=j_GetStaticObjectField;g_jni_table[150]=j_GetStaticIntField;g_jni_table[32]=j_inst;
+          g_jni_table[217]=j_mon_zero;g_jni_table[218]=j_mon_zero;g_jni_table[226]=j_weak_ident;g_jni_table[227]=j_mon_noop;g_jni_table[229]=j_NewDirectByteBuffer;g_jni_table[230]=j_GetDirectBufferAddress;g_jni_table[231]=j_GetDirectBufferCapacity;g_jni_table[232]=j_mon_zero;
+          g_jni_table[171]=j_GetArrayLength;g_jni_table[172]=j_NewObjectArray;g_jni_table[173]=j_GetObjectArrayElement;g_jni_table[174]=j_SetObjectArrayElement;
+          g_jni_table[175]=j_NewBooleanArray;g_jni_table[176]=j_NewByteArray;g_jni_table[177]=j_NewCharArray;g_jni_table[178]=j_NewShortArray;g_jni_table[179]=j_NewIntArray;g_jni_table[180]=j_NewLongArray;g_jni_table[181]=j_NewFloatArray;g_jni_table[182]=j_NewDoubleArray;
+          g_jni_table[183]=j_GetByteArrayElements;g_jni_table[191]=j_ReleaseByteArrayElements;g_jni_table[199]=j_GetByteArrayRegion;g_jni_table[200]=j_SetByteArrayRegion;
+          g_vm_table[3]=vm_Destroy;g_vm_table[4]=vm_Attach;g_vm_table[6]=vm_GetEnv;g_vm_table[7]=vm_Attach;}
+
+          static int gfx_ready;
+          static void init_host_libs(void){
+           static const char*zz[]={"libz.so.1","/usr/lib/arm-linux-gnueabihf/libz.so.1","/usr/lib32/libz.so.1",NULL};
+           static const char*gg[]={"/usr/lib32/libGLESv2.so.2","libGLESv2.so.2","/usr/lib/arm-linux-gnueabihf/libGLESv2.so.2",NULL};
+           static const char*ee[]={"/usr/lib32/libEGL.so.1","libEGL.so.1","/usr/lib/arm-linux-gnueabihf/libEGL.so.1",NULL};int k;
+           for(k=0;zz[k]&&!h_z;k++)h_z=dlopen(zz[k],RTLD_NOW|RTLD_GLOBAL);
+           for(k=0;gg[k]&&!h_gles;k++)h_gles=dlopen(gg[k],RTLD_LAZY|RTLD_GLOBAL);
+           for(k=0;ee[k]&&!h_egl;k++)h_egl=dlopen(ee[k],RTLD_LAZY|RTLD_GLOBAL);
+           L("host: z=%s GLESv2=%s EGL=%s\n",h_z?"ok":"TIDAK ADA",h_gles?"ok":"TIDAK ADA",h_egl?"ok":"TIDAK ADA");
+          }
+
+          typedef void(*nfn)(void*,void*,...);
+          static void*unity_thread(void*arg){Native*ni,*nr,*nc,*nf,*nrender;void*env=&g_envobj;void*self=mk_obj("com/unity3d/player/UnityPlayer");void*ctx=mk_obj("android/app/Activity");void*surf=mk_obj("android/view/Surface");unsigned long frames=0;struct timespec a,b;(void)arg;g_unity_self=self;pthread_setname_np(pthread_self(),"UnityMain");
+           {stack_t ss;ss.ss_sp=malloc(1u<<17);ss.ss_size=1u<<17;ss.ss_flags=0;if(ss.ss_sp)sigaltstack(&ss,NULL);}
+           ni=find_native("UnityPlayer","initJni");nr=find_native("UnityPlayerForActivityOrService","nativeRecreateGfxState");nc=find_native("UnityPlayerForActivityOrService","nativeSendSurfaceChangedEvent");nf=find_native("UnityPlayerForActivityOrService","nativeResume");nrender=find_native("UnityPlayerForActivityOrService","nativeRender");if(!ni||!nr||!nf||!nrender){L("[m2] Unity native entrypoints missing init=%p recreate=%p resume=%p render=%p\n",ni,nr,nf,nrender);g_m2_done=1;return NULL;}
+           L("[m2] UnityPlayer.initJni(context, 0)\n");((nfn)ni->fn)(env,self,ctx,0);L("[m2] nativeRecreateGfxState(0,surface)\n");((nfn)nr->fn)(env,self,0,surf);if(nc)((nfn)nc->fn)(env,self);L("[m2] nativeResume()\n");((nfn)nf->fn)(env,self);{Native*focus=find_native("UnityPlayerForActivityOrService","nativeFocusChanged");if(focus)((nfn)focus->fn)(env,self,1);}g_m2_ready=1;clock_gettime(CLOCK_MONOTONIC,&a);while(!g_m2_done&&frames<(unsigned long)g_frames_target){int r=((uint8_t(*)(void*,void*))nrender->fn)(env,self)&0xff;frames++;g_m2_frames=frames;if(frames==1){alarm(0);L("[watchdog] nativeRender mulai -> timer dibatalkan\n");}if(frames<4||frames%120==0)L("[m2] nativeRender %lu -> %d swap=%lu\n",frames,r,g_gfx.swaps);if(!r){L("[m2] nativeRender false\n");break;}poll_events(1.f/(float)g_fps);if(g_fps==30)usleep(10000);}clock_gettime(CLOCK_MONOTONIC,&b);L("[m2] render ended frames=%lu swaps=%lu elapsed=%ld.%03ld\n",frames,g_gfx.swaps,(long)(b.tv_sec-a.tv_sec),(long)((b.tv_nsec-a.tv_nsec)/1000000));g_m2_done=1;return NULL;}
+          static void m2_run(void){pthread_t t;pthread_attr_t at;if(gfx_setup()!=0){L("[m2] gfx_setup gagal; berhenti sebelum game start\n");return;}
+           pthread_attr_init(&at);pthread_attr_setstacksize(&at,8u<<20);
+           if(pthread_create(&t,&at,unity_thread,NULL)){L("[m2] pthread_create UnityMain gagal\n");pthread_attr_destroy(&at);return;}pthread_attr_destroy(&at);in_open_joysticks();
+           {int waited=0,stall_s=0;unsigned long last_fr=g_m2_frames,last_sw=g_gfx.swaps;const int stall_max=(g_timeout>0?g_timeout:180)/2;int warmup=0;
+            while(!g_m2_done){poll_events(1.f/(float)g_fps);usleep(10000);waited++;
+             if(waited%100==0){
+              if(g_m2_frames==0){if(++warmup>=12){L("[m2] 120 detik tanpa nativeRender sama sekali -> Unity tidak pernah mulai render\n");g_m2_done=1;break;}L("[m2] memuat... %d dtk (nativeRender belum jalan)\n",waited/100);continue;}
+              {int no_prog=(g_m2_frames==last_fr&&g_gfx.swaps==last_sw);last_fr=g_m2_frames;last_sw=g_gfx.swaps;
+               if(no_prog)stall_s++;else stall_s=0;
+               L("[m2] detak %d dtk | nativeRender=%lu | swap=%lu%s\n",waited/100,g_m2_frames,g_gfx.swaps,stall_s>2?" (MACET!)":"");
+               if(stall_s>0&&stall_s%3==0)L("[m2] nativeRender tidak maju selama %d detik -> Unity mungkin menunggu callback Choreographer/Looper\n",stall_s);
+               if(stall_max>0&&stall_s>=stall_max){L("[m2] STALL %d detik -> berhenti (tidak hang selamanya)\n",stall_s);g_m2_done=1;break;}}}}}
+            pthread_join(t,NULL);}
+
+          static void on_sig(int s,siginfo_t*i,void*c){ucontext_t*u=c;uintptr_t pc=0,lr=0,sp=0;int k;
+           static volatile int in_sig=0;
+           if(in_sig){write(2,"\n[port] crash handler gagal, keluar paksa\n",36);_exit(139);}
+           in_sig=1;
+          #if defined(__arm__)
+          pc=u->uc_mcontext.arm_pc;lr=u->uc_mcontext.arm_lr;sp=u->uc_mcontext.arm_sp;
+          #elif defined(__x86_64__)
+          pc=(uintptr_t)u->uc_mcontext.gregs[REG_RIP];
+          #endif
+          L("\n*** signal %d addr=%p pc=%p lr=%p sp=%p ***\n",s,i?i->si_addr:NULL,(void*)pc,(void*)lr,(void*)sp);
+          {Mod*m=mod_of(pc);if(m)L("  in %s+0x%lx\n",m->name,(unsigned long)(pc-m->bias));}
+          #if defined(__arm__)
+          L("  r0=%08lx r1=%08lx r2=%08lx r3=%08lx r4=%08lx r5=%08lx\n",(unsigned long)u->uc_mcontext.arm_r0,(unsigned long)u->uc_mcontext.arm_r1,(unsigned long)u->uc_mcontext.arm_r2,(unsigned long)u->uc_mcontext.arm_r3,(unsigned long)u->uc_mcontext.arm_r4,(unsigned long)u->uc_mcontext.arm_r5);
+          L("  r6=%08lx r7=%08lx r8=%08lx r9=%08lx r10=%08lx fp=%08lx ip=%08lx\n",(unsigned long)u->uc_mcontext.arm_r6,(unsigned long)u->uc_mcontext.arm_r7,(unsigned long)u->uc_mcontext.arm_r8,(unsigned long)u->uc_mcontext.arm_r9,(unsigned long)u->uc_mcontext.arm_r10,(unsigned long)u->uc_mcontext.arm_fp,(unsigned long)u->uc_mcontext.arm_ip);
+          #endif
+          L("  [panggilan JNI terakhir]\n");for(k=0;k<8;k++){unsigned q=(g_jr_i+8+(unsigned)k)&15u;if(g_jr_n[q])L("   %s arg=%p\n",g_jr_n[q],g_jr_p[q]);}
+           {Dl_info di;Mod*ml=mod_of(lr);
+             if(!mod_of(pc)){if(dladdr((void*)pc,&di))L("  pc host: %s %s+0x%lx\n",di.dli_fname?di.dli_fname:"?",di.dli_sname?di.dli_sname:"?",(unsigned long)(pc-(uintptr_t)di.dli_saddr));else L("  pc host: (tak dikenal)\n");}
+             if(ml)L("  lr in %s+0x%lx  (objdump: --start-address=0x%lx)\n",ml->name,(unsigned long)(lr-ml->bias),(unsigned long)((lr-ml->bias)&~0xfUL)-0x20);}
+           if(sp>0x10000&&sp<0xffff0000u){int pr=0;int nscan=(int)((((sp|0xfffu)+1u)-sp)/4u);if(nscan>400)nscan=400;L("  stack scan:\n");for(k=0;k<nscan&&pr<30;k++){uintptr_t v=((uintptr_t*)sp)[k];Mod*m=mod_of(v);if(m){L("   sp+%03d: %08lx %s+0x%lx\n",k*4,(unsigned long)v,m->name,(unsigned long)(v-(uintptr_t)m->base));pr++;}}}
+           fflush(NULL);_exit(128+s);}
+          static void*sigwatch(void*arg){static const int sigs[]={SIGILL,SIGTRAP,SIGABRT,SIGBUS,SIGFPE,SIGSEGV};struct sigaction cur,sa;int k;(void)arg;{stack_t ss;ss.ss_sp=malloc(1u<<16);ss.ss_size=1u<<16;ss.ss_flags=0;if(ss.ss_sp)sigaltstack(&ss,NULL);}for(;;){for(k=0;k<(int)(sizeof sigs/sizeof sigs[0]);k++){memset(&cur,0,sizeof cur);if(sigaction(sigs[k],NULL,&cur)==0&&(cur.sa_sigaction!=on_sig||!(cur.sa_flags&SA_SIGINFO))){L("[sigwatch] handler signal %d changed -> reinstall port handler\n",sigs[k]);memset(&sa,0,sizeof sa);sa.sa_sigaction=on_sig;sa.sa_flags=SA_SIGINFO|SA_ONSTACK;sigemptyset(&sa.sa_mask);sigaction(sigs[k],&sa,NULL);}}usleep(20000);}return NULL;}
+          static void alarm_handler(int s){(void)s;L("[watchdog] timeout\n");_exit(4);}
+          static int pint(const char*s){int n=0;while(*s>='0'&&*s<='9')n=n*10+*s++-'0';return n;}
+          int main(int argc,char**argv){const char*dir="libs";int i,dry=0;Mod*mm,*un,*il;struct utsname u;struct sigaction sa;char logp[256]="m2_log.txt";for(i=1;i<argc;i++){if(!strcmp(argv[i],"--libdir")&&i+1<argc)dir=argv[++i];else if(!strcmp(argv[i],"--assets")&&i+1<argc)g_assets=argv[++i];else if(!strcmp(argv[i],"--apk")&&i+1<argc)snprintf(g_apk_arg,sizeof g_apk_arg,"%s",argv[++i]);else if(!strcmp(argv[i],"--stage")&&i+1<argc)g_stage=pint(argv[++i]);else if(!strcmp(argv[i],"--frames")&&i+1<argc)g_frames_target=pint(argv[++i]);else if(!strcmp(argv[i],"--timeout")&&i+1<argc)g_timeout=pint(argv[++i]);else if(!strcmp(argv[i],"--log")&&i+1<argc)snprintf(logp,sizeof logp,"%s",argv[++i]);else if(!strcmp(argv[i],"--dry"))dry=1;else if(!strcmp(argv[i],"--fps")&&i+1<argc)g_fps=pint(argv[++i]);}g_libdir=dir;g_log=fopen(logp,"w");if(g_log)dup2(fileno(g_log),2);L("== Let Me Eat M2 stage=%d frames=%d ==\n",g_stage,g_frames_target);if(sizeof(void*)!=4){L("must be armhf\n");return 2;}uname(&u);L("system=%s %s %s glibc=%s\n",u.sysname,u.release,u.machine,gnu_get_libc_version());setup_game_paths(dir,g_assets);wipe_il2cpp_cache();{stack_t ss;ss.ss_sp=malloc(1u<<17);ss.ss_size=1u<<17;ss.ss_flags=0;if(ss.ss_sp)sigaltstack(&ss,NULL);}memset(&sa,0,sizeof sa);sa.sa_sigaction=on_sig;sa.sa_flags=SA_SIGINFO|SA_ONSTACK;sigaction(SIGSEGV,&sa,NULL);sigaction(SIGBUS,&sa,NULL);sigaction(SIGILL,&sa,NULL);sigaction(SIGFPE,&sa,NULL);sigaction(SIGABRT,&sa,NULL);sigaction(SIGTRAP,&sa,NULL);sigaction(SIGSYS,&sa,NULL);{pthread_t sw;if(pthread_create(&sw,NULL,sigwatch,NULL)==0)pthread_detach(sw);}signal(SIGALRM,alarm_handler);init_jni_table();dlopen("libm.so.6",RTLD_NOW|RTLD_GLOBAL);dlopen("libgcc_s.so.1",RTLD_NOW|RTLD_GLOBAL);init_host_libs();if(load_mod(dir,"libmain.so",&mm)||load_mod(dir,"libunity.so",&un)||load_mod(dir,"libil2cpp.so",&il))return 1;if(relocate(mm)||relocate(un)||relocate(il))return 1;L("[resolve] unresolved=%d shim=%d glibc=%d weak=%d\n",cnt_unres,cnt_shim,cnt_libc,cnt_weak0);if(nunres)for(i=0;i<nunres;i++)L("UNRES %s\n",unres_name[i]);if(dry||g_stage<1){L("stage0 done\n");return 0;}if(g_timeout>0){alarm((unsigned)g_timeout);L("[watchdog] timeout %d detik\n",g_timeout);}protect(mm);protect(un);protect(il);run_init(mm);run_init(un);run_init(il);{void*f=mod_find(mm,"JNI_OnLoad");if(f)((int(*)(void*,void*))f)(&g_vmobj,NULL);}if(g_stage>=2){Native*n=find_native("NativeLoader","load");if(n){int r=((uint8_t(*)(void*,void*,void*))n->fn)(&g_envobj,mk_handle("com/unity3d/player/NativeLoader"),mk_handle(dir))&255;L("NativeLoader.load=%d\n",r);}else L("missing NativeLoader.load\n");{void*f=mod_find(un,"JNI_OnLoad");if(f)((int(*)(void*,void*))f)(&g_vmobj,NULL);}}if(g_stage>=3)m2_run();else L("stage2 JNI boot done; stage3 starts SDL/render\n");L("== M2 done ==\n");return 0;}
+
+          EOF_C
+      - name: Kompilasi (armhf)
+        run: |
+          arm-linux-gnueabihf-gcc -std=gnu11 -O2 -Wall -Wextra -Wno-unused-parameter -o out/letmeeat/letmeeatloader src/letmeeatloader.c -Isrc -ldl -lpthread -lm
+          file out/letmeeat/letmeeatloader || true
+          arm-linux-gnueabihf-readelf -d out/letmeeat/letmeeatloader | grep NEEDED
+          MAXV=$(arm-linux-gnueabihf-readelf -V out/letmeeat/letmeeatloader | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -Vu | tail -1)
+          echo "butuh GLIBC tertinggi: $MAXV (device armhf: 2.37)"
+          if [ "$(printf '%s\n%s\n' 2.37 "$MAXV" | sort -V | tail -1)" != "2.37" ]; then
+            echo "GAGAL: butuh glibc lebih baru dari 2.37. Simbol penyebab:"
+            arm-linux-gnueabihf-nm -D --undefined-only out/letmeeat/letmeeatloader | grep -E 'GLIBC_2\.(3[89]|[4-9][0-9])' || true
+            exit 1
+          fi
+      - name: Siapkan paket
+        run: |
+          cat > out/letmeeat/LetMeEatM2.sh <<'EOF_SH'
+          #!/bin/bash
+          XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
+          if [ -d "/opt/system/Tools/PortMaster/" ]; then controlfolder="/opt/system/Tools/PortMaster"
+          elif [ -d "/opt/tools/PortMaster/" ]; then controlfolder="/opt/tools/PortMaster"
+          elif [ -d "$XDG_DATA_HOME/PortMaster/" ]; then controlfolder="$XDG_DATA_HOME/PortMaster"
+          else controlfolder="/roms/ports/PortMaster"; fi
+          [ -f "$controlfolder/control.txt" ] && source "$controlfolder/control.txt"
+          [ -f "${controlfolder}/mod_${CFW_NAME}.txt" ] && source "${controlfolder}/mod_${CFW_NAME}.txt"
+          HERE="$(cd "$(dirname "$0")" && pwd)"
+          GAMEDIR=""
+          for c in "/$directory/ports/letmeeat" "/$directory/ports/LetMeEat" "$HERE/letmeeat" "$HERE/LetMeEat" \
+                   /mnt/sdcard/ports/LetMeEat /mnt/sdcard/ports/letmeeat /mnt/mmc/ports/LetMeEat /mnt/mmc/ports/letmeeat; do
+            if [ -f "$c/letmeeatloader" ]; then GAMEDIR="$c"; break; fi
+          done
+          if [ -z "$GAMEDIR" ]; then
+            echo "letmeeatloader tidak ketemu. Salin isi folder build ke folder game (mis. /mnt/sdcard/ports/LetMeEat)." > "$HERE/letmeeat_error.txt"
+            sleep 3; exit 1
+          fi
+          cd "$GAMEDIR" || exit 1
+          LIBDIR="lib/armeabi-v7a"
+          [ -f libs/libunity.so ] && LIBDIR="libs"
+          ASSETDIR="assets"
+          [ -d "$ASSETDIR" ] || ASSETDIR="."
+          export LD_LIBRARY_PATH="/usr/lib32:/lib32:${LD_LIBRARY_PATH}"
+          chmod +x ./letmeeatloader 2>/dev/null
+          rm -f m2_log.txt m1_log.txt m2_stdout.txt
+          echo "GAMEDIR=$GAMEDIR libdir=$LIBDIR assets=$ASSETDIR" > m2_stdout.txt
+          if [ ! -f "$LIBDIR/libunity.so" ] || [ ! -f "$LIBDIR/libil2cpp.so" ] || [ ! -f "$LIBDIR/libmain.so" ]; then
+            echo "libmain.so/libunity.so/libil2cpp.so tidak ada di $GAMEDIR/$LIBDIR" >> m2_stdout.txt
+            sleep 3; exit 1
+          fi
+          ./letmeeatloader --stage 3 --frames 900 --fps 60 --libdir "$LIBDIR" --assets "$ASSETDIR" --timeout 180 --log m2_log.txt >> m2_stdout.txt 2>&1
+          echo "exit code: $?" >> m2_stdout.txt
+          sleep 3
+          type pm_finish >/dev/null 2>&1 && pm_finish
+          EOF_SH
+          chmod +x out/letmeeat/LetMeEatM2.sh
+          cat > out/letmeeat/BACA-DULU.txt <<'EOF_TXT'
+          Let Me Eat M2 (port Let Me Eat / Unity 6000.0 IL2CPP armeabi-v7a -> Linux armhf / muOS)
+          
+          YANG BARU DI M2:
+          - Jendela SDL2 + jembatan EGL hibrida (Unity memakai konteks/surface EGL milik SDL).
+          - Boot Unity: initJni -> nativeRecreateGfxState -> nativeResume -> loop nativeRender.
+          - Input: stick/D-pad/kursor virtual -> MotionEvent -> nativeInjectEvent.
+          - Exit: Select+Start (pad) atau ESC (keyboard).
+          
+          CATATAN PENTING (M2 masih eksperimental):
+          - Layar hitam selama boot itu NORMAL di M2. Unity butuh waktu memuat asset dulu,
+            lalu nativeRender mulai jalan. Tunggu sampai baris "detak ... nativeRender=NN"
+            muncul di log.
+          - Ada watchdog otomatis: kalau nativeRender tidak jalan selama 120 detik, atau
+            macet tanpa progres setengah dari --timeout, proses berhenti sendiri. Jadi tidak
+            perlu khawatir hang selamanya.
+          - Kalau sudah keluar baris "MACET!" atau "STALL", artinya Unity menunggu callback
+            Choreographer/Looper. Kirim log-nya ke Claude.
+
+          CARA PASANG:
+          1. Salin isi folder ini ke folder game di Anbernic, mis. /mnt/sdcard/ports/LetMeEat/
+             (sebelah folder lib/ dan assets/ hasil ekstrak APK).
+          2. Pastikan struktur game ada:
+             lib/armeabi-v7a/{libmain.so,libunity.so,libil2cpp.so}
+             assets/bin/Data/{data.unity3d,resources.resource,boot.config,...}
+          3. Jalankan LetMeEatM2.sh dari menu Ports muOS.
+          4. Kirim m2_log.txt + m2_stdout.txt ke Claude untuk analisa.
+          5. M2 membersihkan cache data/il2cpp dan save/il2cpp saat mulai, agar cache metadata/resources yang terpotong dari run sebelumnya tidak dipakai.
+          
+          JANGAN upload lib/ atau APK game ke GitHub.
+          EOF_TXT
+      - name: Unggah hasil build
+        uses: actions/upload-artifact@v4
+        with:
+          name: letmeeat-m2-armhf
+          path: out
