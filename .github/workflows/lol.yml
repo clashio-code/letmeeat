@@ -961,8 +961,11 @@ jobs:
           static int b_rwlock_init(uint32_t*s,const void*a){pthread_rwlock_t*r=calloc(1,sizeof*r);(void)a;pthread_rwlock_init(r,NULL);*s=U32(r);return 0;}static pthread_rwlock_t*b_rw_get(uint32_t*s){return(pthread_rwlock_t*)(uintptr_t)*s;}static int b_rw_rd(uint32_t*s){return pthread_rwlock_rdlock(b_rw_get(s));}static int b_rw_wr(uint32_t*s){return pthread_rwlock_wrlock(b_rw_get(s));}static int b_rw_un(uint32_t*s){return pthread_rwlock_unlock(b_rw_get(s));}static int b_rw_des(uint32_t*s){if(*s>0xffff){pthread_rwlock_t*r=(void*)(uintptr_t)*s;pthread_rwlock_destroy(r);free(r);}*s=0;return 0;}
           static int b_sig_suspend(const uint32_t*s){sigset_t h;int i;sigemptyset(&h);for(i=0;i<32;i++)if(*s&(1u<<i))sigaddset(&h,i+1);return sigsuspend(&h);}static void b_sig_alt(const void*a,void*b){sigaltstack((const stack_t*)a,(stack_t*)b);}
           static int b_android_api(void){return 30;}static void b_choreo(void*a,void*b,void*c){(void)a;(void)b;(void)c;}
-          static int b_isw_l(wint_t c,void*l){(void)l;return iswalpha(c);}static long long b_strtoll_l(const char*s,char**e,int b,void*l){(void)l;return strtoll(s,e,b);}
-          static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return 1;}static int b_locale_noop(void*p){(void)p;return 0;}static int b_locale_set(int c,const char*l){(void)c;(void)l;return 0;}
+static int b_isw_l(wint_t c,void*l){(void)l;return iswalpha(c);}
+static long long b_strtoll_l(const char*s,char**e,int b,void*l){(void)l;return strtoll(s,e,b);}
+static unsigned long long b_strtoull_l(const char*s,char**e,int b,void*l){(void)l;return strtoull(s,e,b);}
+static long double b_strtold_l(const char*s,char**e,void*l){(void)l;return strtold(s,e);}
+static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return 1;}static int b_locale_noop(void*p){(void)p;return 0;}static int b_locale_set(int c,const char*l){(void)c;(void)l;return 0;}
           static int b_setjmp(void*p){return _setjmp((struct __jmp_buf_tag*)p);}static void b_longjmp(void*p,int v){longjmp((struct __jmp_buf_tag*)p,v);}
           static FILE*xf(FILE*f){uintptr_t a=(uintptr_t)f,b=(uintptr_t)bionic_sF;if(a>=b&&a<b+sizeof bionic_sF){unsigned i=(unsigned)((a-b)/84);return i==0?stdin:i==1?stdout:stderr;}return f;}
           static int b_log_print(int p,const char*t,const char*f,...){char b[1024];va_list a;va_start(a,f);vsnprintf(b,sizeof b,f?f:"",a);va_end(a);return b_log_write(p,t,b);}static int b_log_vprint(int p,const char*t,const char*f,va_list a){char b[1024];vsnprintf(b,sizeof b,f?f:"",a);return b_log_write(p,t,b);}
