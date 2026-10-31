@@ -615,12 +615,19 @@ jobs:
           #include <stdint.h>
           #include <stdarg.h>
           #include <errno.h>
+          #include <sys/wait.h>
+          #include <sys/ptrace.h>
+          #ifndef __WALL
+          #define __WALL 0x40000000
+          #endif
+          #include <sys/syscall.h>
           #include <math.h>
           #include <time.h>
           #include <elf.h>
           #include <link.h>
           #include <dlfcn.h>
           #include <fcntl.h>
+          #include <sys/uio.h>
           #include <unistd.h>
           #include <pthread.h>
           #include <semaphore.h>
@@ -787,9 +794,10 @@ jobs:
           #include "stubs.inc"
           static int trap_unres(int i){L("*** unresolved dipanggil: %s ***\n",i>=0&&i<nunres?unres_name[i]:"?");_exit(3);return 0;}
 
+          static volatile unsigned long g_m2_frames;static void mem_peek(const char*,uintptr_t);static void code_dump(const char*,uintptr_t,int);static int safe_rd(uintptr_t,void*,size_t);static int rd_probe(uintptr_t,size_t);static int rd_range(uintptr_t,size_t);
           typedef union{int32_t i;int64_t j;float f;double d;void*l;} jv;
           typedef struct{char t;int len;void*data;}JArrM;static JArrM g_arrs[512];static int g_arr_n;
-          static void*arr_new(char t,int len){JArrM*a;size_t sz=1;if(len<0)len=0;if(g_arr_n>=512)return NULL;switch(t){case 'J':case 'D':sz=8;break;case 'I':case 'F':sz=4;break;case 'S':case 'C':sz=2;break;case 'L':sz=sizeof(void*);break;default:sz=1;}a=&g_arrs[g_arr_n];a->t=t;a->len=len;a->data=calloc(len?(size_t)len:1,sz);if(!a->data)return NULL;return(void*)(uintptr_t)(0x72000000u+(uint32_t)g_arr_n++*4u);}
+          static void*arr_new(char t,int len){JArrM*a;size_t sz=1;if(len<0)len=0;if(g_arr_n>=512){static int w;if(!w++)L("[arr] g_arrs PENUH (512) -> arr_new NULL\n");return NULL;}switch(t){case 'J':case 'D':sz=8;break;case 'I':case 'F':sz=4;break;case 'S':case 'C':sz=2;break;case 'L':sz=sizeof(void*);break;default:sz=1;}a=&g_arrs[g_arr_n];a->t=t;a->len=len;a->data=calloc(len?(size_t)len:1,sz);if(!a->data)return NULL;return(void*)(uintptr_t)(0x72000000u+(uint32_t)g_arr_n++*4u);}
           static JArrM*arrm_get(void*h);
           /* window Android palsu (dipakai juga GetIntField: widthPixels/heightPixels) */
           typedef struct{int w,h,fmt,refs;}NWin;static NWin g_nwin={640,480,1,1};
@@ -810,6 +818,17 @@ jobs:
           static void j_ReleaseByteArrayElements(void*e,void*h,void*p,int mode){(void)e;(void)h;(void)p;(void)mode;}
           static void j_GetByteArrayRegion(void*e,void*h,int start,int len,void*out){JArrM*a=arrm_get(h);(void)e;if(!a||a->t!='B'||!out||start<0||len<0||start>a->len||len>a->len-start)return;memcpy(out,(uint8_t*)a->data+start,(size_t)len);}
           static void j_SetByteArrayRegion(void*e,void*h,int start,int len,const void*in){JArrM*a=arrm_get(h);(void)e;if(!a||a->t!='B'||!in||start<0||len<0||start>a->len||len>a->len-start)return;memcpy((uint8_t*)a->data+start,in,(size_t)len);}
+          /* diag6: fungsi array generik (semua tipe primitif). Slot JNI Get/Release/Region sebelumnya
+             geser satu (183/191/199/200 -> seharusnya 184/192/200/208) sehingga GetByteArrayElements
+             jatuh ke stub -> return NULL -> SIGSEGV di libunity. */
+          static size_t arr_esz(char t){switch(t){case 'J':case 'D':return 8;case 'I':case 'F':return 4;case 'S':case 'C':return 2;case 'L':return sizeof(void*);default:return 1;}}
+          static uint8_t g_arr_dummy[65536];
+          static void* j_GetArrElems(void*e,void*h,uint8_t*c){JArrM*a=arrm_get(h);(void)e;if(c)*c=0;if(!a){L("[JNI] GetArrayElements handle=%p bukan array -> buffer dummy\n",h);memset(g_arr_dummy,0,sizeof g_arr_dummy);return g_arr_dummy;}return a->data;}
+          static void j_RelArrElems(void*e,void*h,void*p,int mode){(void)e;(void)h;(void)p;(void)mode;}
+          static void j_GetArrRegion(void*e,void*h,int start,int len,void*out){JArrM*a=arrm_get(h);size_t z;(void)e;if(!a||!out||start<0||len<0||start>a->len||len>a->len-start)return;z=arr_esz(a->t);memcpy(out,(uint8_t*)a->data+(size_t)start*z,(size_t)len*z);}
+          static void j_SetArrRegion(void*e,void*h,int start,int len,const void*in){JArrM*a=arrm_get(h);size_t z;(void)e;if(!a||!in||start<0||len<0||start>a->len||len>a->len-start)return;z=arr_esz(a->t);memcpy((uint8_t*)a->data+(size_t)start*z,in,(size_t)len*z);}
+          static void* j_GetPrimCritical(void*e,void*h,uint8_t*c){return j_GetArrElems(e,h,c);}
+          static void j_RelPrimCritical(void*e,void*h,void*p,int mode){(void)e;(void)h;(void)p;(void)mode;}
           typedef int32_t jint;typedef int64_t jlong;typedef uint8_t jboolean;
           static char *reg_str[8192];static int reg_n,obj_serial;
           static const void *g_jni_table[256],*g_vm_table[16];
@@ -831,8 +850,12 @@ jobs:
           static Mod*mod_find_name(const char*);
           static void*mod_find(const Mod*,const char*);
           static Native*find_native(const char*c,const char*n){int i;for(i=0;i<g_nnat;i++)if(!strcmp(g_natives[i].name,n)&&(!c||strstr(g_natives[i].cls,c)))return &g_natives[i];return NULL;}
+          static Native*find_native_sig(const char*n,const char*pre){int i;for(i=0;i<g_nnat;i++)if(!strcmp(g_natives[i].name,n)&&!strncmp(g_natives[i].sig,pre,strlen(pre)))return &g_natives[i];return NULL;}
           /* Cari path .so buat ClassLoader.findLibrary. Modul yang sudah dimuat dianggap ada
-             tanpa cek file (kita sudah punya isinya di memori). */
+             tanpa cek file (kita sudah punya isinya di memori). Pustaka yang tidak ditemukan
+             -> kembalikan 0 (NULL ke Java), sesuai Android asli: file tidak ada = NULL.
+             GetStringUTFChars sekarang aman untuk NULL (return NULL, bukan registry pointer),
+             jadi jalur NULL tidak lagi bikin double-free. */
           static int find_lib_path(const char*nm,char*out,size_t n){
            char bn[128];const char*b=strrchr(nm?nm:"",'/');
            char p[512];struct stat st;
@@ -845,8 +868,17 @@ jobs:
            return 0;
           }
           static int collect_va(const char*s,va_list ap,jv*a){const char*p=s+1;int n=0;while(*p&&*p!=')'&&n<16){memset(&a[n],0,sizeof a[n]);while(*p=='[')p++;if(*p=='L'){a[n].l=va_arg(ap,void*);while(*p&&*p!=';')p++;}else if(*p=='J')a[n].j=va_arg(ap,int64_t);else if(*p=='F')a[n].f=(float)va_arg(ap,double);else if(*p=='D')a[n].d=va_arg(ap,double);else a[n].i=va_arg(ap,int);if(*p)p++;n++;}return n;}
-          static void java_invoke(void*mid,void*o,const jv*a,jv*r){MInfo*m=mi_get(mid);const char*rp;char rt;memset(r,0,sizeof*r);if(!m)return;JL("CallMethod",mid);m->count++;rp=strchr(m->sig,')');rt=rp?rp[1]:'V';if(m->count<5)L("[JNI] %s.%s%s\n",m->cls,m->name,m->sig);
-           /* --- MotionEvent: Unity membaca state sentuhan lewat method getter --- */
+          static void ui_reg_proxy(void*h,int64_t ptr);static void ui_post(void*h,int64_t dly);
+          static volatile int g_in_inv,g_inv_tid;static int g_inv_logn,g_msg_logn;static MInfo*refm_info(void*o);
+          static void java_invoke(void*mid,void*o,const jv*a,jv*r){MInfo*m=mi_get(mid);const char*rp;char rt;memset(r,0,sizeof*r);if(!m)return;JL(m->name,mid);m->count++;rp=strchr(m->sig,')');rt=rp?rp[1]:'V';if(!strcmp(m->name,"setTitle")||!strcmp(m->name,"setMessage")||!strcmp(m->name,"setPositiveButton")||!strcmp(m->name,"setNegativeButton")||(!strcmp(m->name,"setText")&&m->count<4))L("[DIALOG] %s = \"%s\"\n",m->name,(a&&a[0].l)?h2sn(a[0].l):"");if(m->count<8)L("[JNI] %s.%s%s\n",m->cls,m->name,m->sig);
+          if(g_in_inv&&g_inv_tid==(int)syscall(SYS_gettid)&&g_inv_logn<400){g_inv_logn++;L("[inv] %s.%s%s o=%s a0=%p\n",m->cls,m->name,m->sig,o?h2sn(o):"(null)",a?a[0].l:NULL);}
+          if(g_msg_logn<200&&(!strcmp(m->name,"obtainMessage")||!strcmp(m->name,"sendToTarget")||!strcmp(m->name,"sendMessage")||!strcmp(m->name,"getLooper")||!strcmp(m->name,"sendEmptyMessage"))){g_msg_logn++;L("[msg] %s o=%s a0=%d tid=%d frame=%lu\n",m->name,o?h2sn(o):"(null)",a?a[0].i:0,(int)syscall(SYS_gettid),(unsigned long)g_m2_frames);}
+           /* --- emulasi thread UI: Runnable proxy (newInterfaceProxy) dijalankan oleh thread FakeUI --- */
+          if(a&&!strcmp(m->name,"newInterfaceProxy")){void*ph=mk_obj("java/lang/Object");L("[ui] newInterfaceProxy ptr=0x%llx handle=%p frame=%lu\n",(unsigned long long)a[0].j,ph,(unsigned long)g_m2_frames);mem_peek("ptr@dibuat",(uintptr_t)a[0].j);
+          {static uintptr_t seen[8];static int ns;void**fp=(void**)__builtin_frame_address(0);int q,n=0;for(q=0;q<120&&n<4;q++){uintptr_t v=(uintptr_t)fp[q];Mod*mm=(v&1)?mod_of(v):NULL;if(mm&&!strcmp(mm->name,"libunity.so")){int z,dup=0;uintptr_t pc=v&~(uintptr_t)1;L("[ui]   pemanggil newInterfaceProxy: libunity+0x%lx\n",(unsigned long)(pc-mm->bias));if(n==0){for(z=0;z<ns;z++)if(seen[z]==pc)dup=1;if(!dup&&ns<8){char lb[48];seen[ns++]=pc;snprintf(lb,sizeof lb,"creator-%lx",(unsigned long)(pc-mm->bias));code_dump(lb,pc-0xe0,0x100);}}n++;}}}{JArrM*ia=arrm_get(a[1].l);int iq;if(ia&&ia->t=='L')for(iq=0;iq<ia->len&&iq<4;iq++)L("[ui]   iface[%d]=%s\n",iq,h2sn(((void**)ia->data)[iq]));else L("[ui]   iface: array tak terbaca (a1=%p)\n",a[1].l);}
+          ui_reg_proxy(ph,a[0].j);r->l=ph;return;}
+          if(a&&a[0].l&&(!strcmp(m->name,"runOnUiThread")||!strcmp(m->name,"post")||!strcmp(m->name,"postDelayed")||!strcmp(m->name,"postAtFrontOfQueue"))){ui_post(a[0].l,!strcmp(m->name,"postDelayed")?a[1].j:0);r->i=1;return;}
+          /* --- MotionEvent: Unity membaca state sentuhan lewat method getter --- */
            if(!strcmp(m->name,"getAction"))r->i=g_mev.action;
            else if(!strcmp(m->name,"getActionMasked"))r->i=g_mev.action&0xff;
            else if(!strcmp(m->name,"getActionIndex"))r->i=0;
@@ -869,6 +901,7 @@ jobs:
            else if(!strcmp(m->name,"getHistoricalX")||!strcmp(m->name,"getHistoricalY"))r->f=0.f;
            else if(!strcmp(m->name,"obtain")&&!strcmp(m->cls,"android/view/MotionEvent"))r->l=motion_obj?motion_obj:mk_obj("android/view/MotionEvent");
            else if(!strcmp(m->name,"getPath")||!strcmp(m->name,"getAbsolutePath")||!strcmp(m->name,"getCanonicalPath")){r->l=o;}
+           else if(!strcmp(m->name,"getName")&&refm_info(o)){r->l=mk_handle(refm_info(o)->name);}
            else if(!strcmp(m->name,"getName")){const char*p=o?h2sn(o):"";const char*b=strrchr(p,'/');r->l=mk_handle(b?b+1:p);}
            else if(!strcmp(m->name,"getParent")){const char*p=o?h2sn(o):"";char b[512];char*s;snprintf(b,sizeof b,"%s",p);s=strrchr(b,'/');if(s&&s!=b)*s=0;else snprintf(b,sizeof b,"%s",p);r->l=mk_handle(b);}
            else if(!strcmp(m->name,"exists")){r->i=file_exists(o?h2sn(o):"");}
@@ -915,11 +948,11 @@ jobs:
            /* ClassLoader.findLibrary("il2cpp") -> baselib dlopen(path) lalu dlsym("il2cpp_init").
               Kalau hasilnya kosong, dlopen("") di glibc nunjuk ke PROGRAM UTAMA (loader),
               jadi il2cpp_* tidak ketemu -> "Failed to load Il2CPP". Jadi harus path asli. */
-           else if(!strcmp(m->name,"findLibrary")){const char*nm=h2sn(a[0].l);char p[512];if(nm&&*nm){if(find_lib_path(nm,p,sizeof p)){L("[JNI] findLibrary(\"%s\") -> %s\n",nm,p);r->l=mk_handle(p);}else{L("[JNI] findLibrary(\"%s\") -> TIDAK ADA, NULL\n",nm);r->l=NULL;}}else r->l=NULL;}
+           else if(!strcmp(m->name,"findLibrary")){const char*nm=h2sn(a[0].l);char p[512];if(nm&&*nm&&find_lib_path(nm,p,sizeof p)){L("[JNI] findLibrary(\"%s\") -> %s\n",nm,p);r->l=mk_handle(p);}else{L("[JNI] findLibrary(\"%s\") -> string kosong (tidak ditemukan, kompatibel Wobble)\n",nm?nm:"");r->l=mk_handle("");}}
            else if(!strcmp(m->name,"getRawAssetFileOffset")||!strcmp(m->name,"getRawAssetFileLength")){char p[800];struct stat st;snprintf(p,sizeof p,"%s/%s",g_assets,h2s(a[0].l));if(!file_exists(p))snprintf(p,sizeof p,"%s/assets/%s",g_game_root,h2s(a[0].l));r->j=stat(p,&st)==0?(!strcmp(m->name,"getRawAssetFileOffset")?0:(int64_t)st.st_size):0;}
            else if(rt=='L'&&rp&&!strcmp(rp+1,"Ljava/lang/String;"))r->l=mk_handle("");
            else if(rt=='L'&&rp){char c[128];const char*q=rp+2;size_t k=0;while(*q&&*q!=';'&&k<sizeof(c)-1)c[k++]=*q++;c[k]=0;r->l=mk_obj(c);}
-           else if(rt=='[')r->l=mk_handle("");}
+           else if(rt=='['){char at=rp[2];if(at=='['||at=='L')at='L';L("[JNI] %s.%s%s -> array kosong (tipe %c)\n",m->cls,m->name,m->sig,at);r->l=arr_new(at,0);}}
           #define PREP(mid,ap,a) do{MInfo*_m=mi_get(mid);if(_m)collect_va(_m->sig,ap,a);}while(0)
           #define DEFCALL(N,T,C,ATTR) ATTR static T j_Call##N##Method(void*e,void*o,void*m,...){va_list ap;jv a[16]={0},r;(void)e;va_start(ap,m);PREP(m,ap,a);va_end(ap);java_invoke(m,o,a,&r);return C;} ATTR static T j_Call##N##MethodV(void*e,void*o,void*m,va_list ap){jv a[16]={0},r;(void)e;PREP(m,ap,a);java_invoke(m,o,a,&r);return C;} ATTR static T j_Call##N##MethodA(void*e,void*o,void*m,const jv*a){jv r;(void)e;java_invoke(m,o,a,&r);return C;} ATTR static T j_CallStatic##N##Method(void*e,void*o,void*m,...){va_list ap;jv a[16]={0},r;(void)e;(void)o;va_start(ap,m);PREP(m,ap,a);va_end(ap);java_invoke(m,o,a,&r);return C;} ATTR static T j_CallStatic##N##MethodV(void*e,void*o,void*m,va_list ap){jv a[16]={0},r;(void)e;(void)o;PREP(m,ap,a);java_invoke(m,o,a,&r);return C;} ATTR static T j_CallStatic##N##MethodA(void*e,void*o,void*m,const jv*a){jv r;(void)e;(void)o;java_invoke(m,o,a,&r);return C;}
           DEFCALL(Object,void*,r.l,)
@@ -933,15 +966,18 @@ jobs:
           static int jni_trap(int i){L("[JNI] slot %d %s belum dipasang\n",i,jni_names[i]);JL(jni_names[i],NULL);return 0;}
           /* (ring buffer panggilan JNI dideklarasikan di atas, sebelum java_invoke) */
           static int j_GetVersion(void*e){(void)e;return 0x10006;}static void*j_FindClass(void*e,const char*n){(void)e;JL("FindClass",n);return mk_handle(n);}static void*j_GetObjectClass(void*e,void*o){(void)e;JL("GetObjectClass",o);return mk_handle(h2s(o));}
-          static void*j_GetMethodID(void*e,void*c,const char*n,const char*s){(void)e;return mk_method(h2s(c),n,s,0);}static void*j_GetStaticMethodID(void*e,void*c,const char*n,const char*s){(void)e;return mk_method(h2s(c),n,s,1);}static void*j_GetFieldID(void*e,void*c,const char*n,const char*s){(void)e;(void)s;return mk_handle(n);}
+          static void*j_GetMethodID(void*e,void*c,const char*n,const char*s){(void)e;return mk_method(h2s(c),n,s,0);}typedef struct{void*obj;void*mid;}RefM;static RefM g_refm[256];static int g_nrefm;static MInfo*refm_info(void*o){int i;for(i=0;i<g_nrefm;i++)if(g_refm[i].obj==o)return mi_get(g_refm[i].mid);return NULL;}static void*j_ToReflectedMethod(void*e,void*c,void*mid,uint8_t st){int i;void*o;(void)e;(void)c;(void)st;for(i=0;i<g_nrefm;i++)if(g_refm[i].mid==mid)return g_refm[i].obj;o=mk_obj("java/lang/reflect/Method");if(g_nrefm<256){g_refm[g_nrefm].obj=o;g_refm[g_nrefm].mid=mid;g_nrefm++;}if(g_inv_logn<400){g_inv_logn++;L("[inv] ToReflectedMethod mid=%p -> %p\n",mid,o);}return o;}static void*j_ToReflectedField(void*e,void*c,void*f,uint8_t st){(void)e;(void)c;(void)st;return f;}static void*j_FromReflectedMethod(void*e,void*m){int i;(void)e;for(i=0;i<g_nrefm;i++)if(g_refm[i].obj==m)return g_refm[i].mid;return mk_method("java/lang/Runnable","run","()V",0);}static void*j_GetStaticMethodID(void*e,void*c,const char*n,const char*s){(void)e;return mk_method(h2s(c),n,s,1);}static void*j_GetFieldID(void*e,void*c,const char*n,const char*s){(void)e;(void)s;return mk_handle(n);}
           static void*j_NewObject(void*e,void*c,void*m,...){(void)e;(void)m;return mk_obj(h2s(c));}static void*j_NewObjectV(void*e,void*c,void*m,va_list a){(void)e;(void)m;(void)a;return mk_obj(h2s(c));}static void*j_NewObjectA(void*e,void*c,void*m,const jv*a){(void)e;(void)m;(void)a;return mk_obj(h2s(c));}static void*j_AllocObject(void*e,void*c){(void)e;return mk_obj(h2s(c));}
           static void*j_ident(void*e,void*o){(void)e;return o;}static void j_void2(void*e,void*o){(void)e;(void)o;}static int j_zero1(void*e){(void)e;return 0;}static int j_zero2(void*e,int a){(void)e;(void)a;return 0;}
           static void*j_NewStringUTF(void*e,const char*s){(void)e;return mk_handle(s?s:"");}static int j_GetStringUTFLength(void*e,void*s){(void)e;return(int)strlen(h2s(s));}
           /* GetStringUTFChars harus mengembalikan salinan malloc: game boleh memakainya
-             lalu melepasnya. Kalau kita balikkan pointer registry, free() dari game
-             merusak registry -> double free / corruption. */
-          static const char*j_GetStringUTFChars(void*e,void*s,uint8_t*c){char*o;(void)e;if(c)*c=1;o=strdup(h2sn(s));return o;}
-          static void j_ReleaseStringUTFChars(void*e,void*s,const char*c){(void)e;(void)s;if(c)free((void*)c);}
+             lalu melepasnya. Kalau handle tidak valid (termasuk NULL dari findLibrary
+             gagal), kembalikan NULL — jangan pernah beri string palsu ke game. */
+          static const char*j_GetStringUTFChars(void*e,void*s,uint8_t*c){uintptr_t v=(uintptr_t)s;char*o;(void)e;if(v<0x70000000u||v>=0x70000000u+8192u*4u){if(c)*c=0;return NULL;}if(c)*c=1;o=strdup(h2sn(s));return o;}
+          /* Android isCopy=false: ReleaseStringUTFChars/ReleaseStringChars adalah no-op.
+             GetStringUTFChars tetap strdup supaya game yang free() langsung tetap benar.
+             Kalau kita free() di Release DAN game juga free() -> double free. */
+          static void j_ReleaseStringUTFChars(void*e,void*s,const char*c){(void)e;(void)s;(void)c;}
 
           /* --- JNI lengkap: ref global/local, exception, string UTF-16, field, array ---
              NewGlobalRef yang mengembalikan NULL bikin setiap objek Java Unity jadi NULL ->
@@ -971,14 +1007,15 @@ jobs:
           #define SBUF_N 512
           static uint16_t*g_sbuf[SBUF_N];static int g_sbuf_n;
           static const uint16_t*j_GetStringChars(void*e,void*s,uint8_t*copy){const char*p=h2sn(s);uint16_t*o;size_t k=0;(void)e;if(copy)*copy=1;o=malloc((strlen(p)+1)*2);if(!o)return NULL;while(*p){unsigned c=(unsigned char)*p++;if(c>=0xE0&&p[0]&&p[1]){c=((c&0xf)<<12)|((unsigned)(p[0]&0x3f)<<6)|(p[1]&0x3f);p+=2;}else if(c>=0xC0&&p[0]){c=((c&0x1f)<<6)|(p[0]&0x3f);p+=1;}o[k++]=(uint16_t)c;}o[k]=0;if(g_sbuf_n<SBUF_N)g_sbuf[g_sbuf_n++]=o;return o;}
-          static void j_ReleaseStringChars(void*e,void*s,const uint16_t*c){int i,f=0;(void)e;(void)s;if(!c)return;for(i=0;i<g_sbuf_n;i++)if(g_sbuf[i]==c){g_sbuf[i]=NULL;f=1;break;}if(f)free((void*)c);}
+          /* isCopy=false: no-op, game boleh free() sendiri atau tidak; jangan free di sini. */
+          static void j_ReleaseStringChars(void*e,void*s,const uint16_t*c){(void)e;(void)s;(void)c;}
           static long j_GetIntField(void*e,void*o,void*f){const char*fn=h2sn(f);(void)e;(void)o;if(strstr(fn,"widthPixels"))return g_nwin.w;if(strstr(fn,"heightPixels"))return g_nwin.h;if(strstr(fn,"densityDpi"))return 160;if(strstr(fn,"SDK_INT"))return 30;if(strstr(fn,"MemoryClass"))return 128;if(strstr(fn,"targetSdkVersion")||strstr(fn,"targetSdk"))return 30;if(strstr(fn,"minSdkVersion")||strstr(fn,"minSdk")||strstr(fn,"minApiLevel"))return 21;if(strstr(fn,"versionCode"))return 1;return 0;}
           static int64_t j_GetLongField(void*e,void*o,void*f){(void)e;(void)o;(void)f;return 0;}
           static float j_GetFloatField(void*e,void*o,void*f){const char*fn=h2sn(f);(void)e;(void)o;if(strstr(fn,"density")||strstr(fn,"xdpi")||strstr(fn,"ydpi"))return 160.f;return 0.f;}
           static double j_GetDoubleField(void*e,void*o,void*f){(void)e;(void)o;(void)f;return 0.0;}
           static uint8_t j_GetBooleanField(void*e,void*o,void*f){(void)e;(void)o;(void)f;return 0;}
           static void* j_GetObjectField(void*e,void*o,void*f){const char*fn=h2sn(f);(void)e;(void)o;if(!strcmp(fn,"nativeLibraryDir"))return mk_handle(g_libdir);if(!strcmp(fn,"sourceDir")||!strcmp(fn,"publicSourceDir"))return mk_handle(g_package_path);if(!strcmp(fn,"dataDir")||!strcmp(fn,"deviceProtectedDataDir"))return mk_handle(g_data_dir);if(!strcmp(fn,"packageName"))return mk_handle("com.letmeeat.game");if(!strcmp(fn,"versionName"))return mk_handle("1.0");return NULL;}
-          static void* j_NewObjectArray(void*e,int len,void*cls,void*init){JArrM*a;int i;(void)e;(void)cls;if(g_arr_n>=512)return NULL;a=&g_arrs[g_arr_n];a->t='L';a->len=len>0?len:0;a->data=calloc(a->len?(size_t)a->len:1,sizeof(void*));if(a->data&&init)for(i=0;i<a->len;i++)((void**)a->data)[i]=init;g_arr_n++;return(void*)(uintptr_t)(0x72000000u+(uint32_t)(g_arr_n-1)*4u);}
+          static void* j_NewObjectArray(void*e,int len,void*cls,void*init){JArrM*a;int i;(void)e;(void)cls;if(g_arr_n>=512){static int w;if(!w++)L("[arr] g_arrs PENUH (512) -> NewObjectArray NULL\n");return NULL;}a=&g_arrs[g_arr_n];a->t='L';a->len=len>0?len:0;a->data=calloc(a->len?(size_t)a->len:1,sizeof(void*));if(a->data&&init)for(i=0;i<a->len;i++)((void**)a->data)[i]=init;g_arr_n++;return(void*)(uintptr_t)(0x72000000u+(uint32_t)(g_arr_n-1)*4u);}
           static JArrM*arrm_get(void*h){uintptr_t v=(uintptr_t)h;JArrM*a;if(v<0x72000000u||v>=0x72000000u+512u*4u)return NULL;a=&g_arrs[(v-0x72000000u)/4u];return a->data?a:NULL;}
           static int j_GetArrayLength(void*e,void*arr){JArrM*a=arrm_get(arr);(void)e;return a?a->len:0;}
           static void* j_GetObjectArrayElement(void*e,void*arr,int i){JArrM*a=arrm_get(arr);(void)e;if(!a||i<0||i>=a->len)return NULL;return((void**)a->data)[i];}
@@ -995,7 +1032,7 @@ jobs:
 
           /* ======================= bionic -> glibc shim ======================= */
           static uint32_t b_stack_chk_guard=0x00a4c3e1u;static char bionic_sF[252];static pthread_mutex_t g_initlock=PTHREAD_MUTEX_INITIALIZER;
-          static int *b_errno_ptr(void){return &errno;}static int b_log_write(int p,const char*t,const char*x){L("[droid %d/%s] %s\n",p,t?t:"?",x?x:"");return 1;}
+          static int *b_errno_ptr(void){return &errno;}static volatile int g_script_ready;static int b_log_write(int p,const char*t,const char*x){L("[droid %d/%s] %s\n",p,t?t:"?",x?x:"");if(!g_script_ready&&t&&x&&!strcmp(t,"Unity")&&strstr(x,"UnityEngine.")){g_script_ready=1;L("[ui] skrip terkelola AKTIF (log Unity pertama) -> Runnable tertahan boleh jalan\n");}return 1;}
           static void b_abort_msg(const char*m){L("[droid] android_set_abort_message: %s\n",m?m:"(null)");}
           static size_t b_strlcpy(char*d,const char*s,size_t n){size_t l=strlen(s),c;if(n){c=l<n-1?l:n-1;memcpy(d,s,c);d[c]=0;}return l;}
           static size_t b_strlcat(char*d,const char*s,size_t n){size_t a=strnlen(d,n),b=strlen(s),c;if(a<n){c=b<n-a-1?b:n-a-1;memcpy(d+a,s,c);d[a+c]=0;}return a+b;}
@@ -1003,11 +1040,44 @@ jobs:
           static int b_fdset(int f,void*s,size_t n){if(f<0||(size_t)f>=n*8||f>=FD_SETSIZE){errno=EINVAL;return -1;}FD_SET(f,(fd_set*)s);return 0;}static int b_fdclr(int f,void*s,size_t n){if(f<0||(size_t)f>=n*8||f>=FD_SETSIZE){errno=EINVAL;return -1;}FD_CLR(f,(fd_set*)s);return 0;}static int b_fdisset(int f,const void*s,size_t n){if(f<0||(size_t)f>=n*8||f>=FD_SETSIZE){errno=EINVAL;return 0;}return FD_ISSET(f,(const fd_set*)s);}
           static int b_mutexattr_init(long*a){*a=0;return 0;}static int b_mutexattr_settype(long*a,int t){*a=t;return 0;}static int b_mutexattr_gettype(const long*a,int*t){*t=(int)*a;return 0;}static int b_mutexattr_destroy(long*a){(void)a;return 0;}
           static int b_condattr_init(long*a){*a=0;return 0;}static int b_condattr_destroy(long*a){(void)a;return 0;}
-          static int b_sem_trywait(uint32_t*s){return sem_trywait((sem_t*)(uintptr_t)*s);}static int b_attr_detach(uint32_t*s,int d){return pthread_attr_setdetachstate((pthread_attr_t*)(uintptr_t)*s,d);}
-          static int b_thread_detach(uint32_t*t){return pthread_detach((pthread_t)(uintptr_t)*t);}static int b_thread_equal(uint32_t a,uint32_t b){return pthread_equal((pthread_t)(uintptr_t)a,(pthread_t)(uintptr_t)b);}static void b_thread_exit(void*v){pthread_exit(v);}static int b_thread_join(uint32_t t,void**v){return pthread_join((pthread_t)(uintptr_t)t,v);}static uint32_t b_thread_self(void){return(uint32_t)(uintptr_t)pthread_self();}static int b_thread_keydel(uint32_t k){return pthread_key_delete((pthread_key_t)k);}static int b_thread_once(uint32_t*c,void(*fn)(void)){return pthread_once((pthread_once_t*)c,fn);}
+          /* diag7: semaphore bionic (4 byte) -> glibc sem_t (16 byte) lewat POOL. Handle yang tidak berasal dari pool
+             (mis. nilai sampah 0xea0625a6 yang bikin SIGBUS LDREX tidak sejajar di glibc sem_post) tidak lagi
+             diteruskan ke glibc: dicatat bersama alamat pemanggil lalu diinisialisasi ulang secara lazy. */
+          #define SEMN 16384
+          static sem_t *g_sempool;static uint8_t g_semused[SEMN];static uint32_t g_semfree[SEMN];static int g_semfree_n,g_sem_bad;
+          static void sem_pool_init(void){int i;if(g_sempool)return;g_sempool=mmap(NULL,(size_t)SEMN*sizeof(sem_t),PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);if(g_sempool==MAP_FAILED){g_sempool=NULL;return;}for(i=SEMN-1;i>=0;i--)g_semfree[g_semfree_n++]=(uint32_t)i;}
+          static int sem_idx(uint32_t w){uintptr_t p=(uintptr_t)w,b=(uintptr_t)g_sempool;size_t i;if(!g_sempool||p<b||p>=b+(size_t)SEMN*sizeof(sem_t)||((p-b)%sizeof(sem_t)))return -1;i=(p-b)/sizeof(sem_t);return g_semused[i]?(int)i:-1;}
+          static sem_t*sem_new(unsigned v,int ps){sem_t*r=NULL;pthread_mutex_lock(&g_initlock);sem_pool_init();if(g_sempool&&g_semfree_n>0){uint32_t i=g_semfree[--g_semfree_n];g_semused[i]=1;r=&g_sempool[i];}pthread_mutex_unlock(&g_initlock);if(r)sem_init(r,ps,v);return r;}
+          static sem_t*sem_get(uint32_t*s,void*caller){int i=sem_idx(*s);sem_t*r;if(i>=0)return &g_sempool[i];
+           r=sem_new(0,0);if(g_sem_bad++<20)L("[sem] handle tidak dikenal %08x dari caller=%p -> sem baru (lazy)\n",(unsigned)*s,caller);
+           if(r)*s=U32(r);return r;}
+          static int b_sem_init(uint32_t*s,int p,unsigned v){sem_t*r=sem_new(v,p);if(!r){errno=ENOMEM;return -1;}*s=U32(r);return 0;}
+          static int b_sem_wait(uint32_t*s){sem_t*x=sem_get(s,__builtin_return_address(0));return x?sem_wait(x):-1;}
+          static int b_sem_trywait(uint32_t*s){sem_t*x=sem_get(s,__builtin_return_address(0));return x?sem_trywait(x):-1;}
+          static int b_sem_timedwait(uint32_t*s,const struct timespec*t){sem_t*x=sem_get(s,__builtin_return_address(0));return x?sem_timedwait(x,t):-1;}
+          static int b_sem_clockwait(uint32_t*s,int clk,const struct timespec*t){sem_t*x=sem_get(s,__builtin_return_address(0));return x?sem_clockwait(x,(clockid_t)clk,t):-1;}
+          static int b_sem_post(uint32_t*s){sem_t*x=sem_get(s,__builtin_return_address(0));return x?sem_post(x):-1;}
+          static int b_sem_get(uint32_t*s,int*v){sem_t*x=sem_get(s,__builtin_return_address(0));return x?sem_getvalue(x,v):-1;}
+          static int b_sem_des(uint32_t*s){int i=sem_idx(*s);if(i>=0){sem_destroy(&g_sempool[i]);pthread_mutex_lock(&g_initlock);g_semused[i]=0;g_semfree[g_semfree_n++]=(uint32_t)i;pthread_mutex_unlock(&g_initlock);}*s=0;return 0;}static int b_attr_detach(uint32_t*s,int d){return pthread_attr_setdetachstate((pthread_attr_t*)(uintptr_t)*s,d);}
+          /* bionic pthread_detach menerima pthread_t by value; handle tidak valid jangan diteruskan ke glibc. */
+          static int b_thread_detach(uint32_t t){if(t<0x10000u)return ESRCH;return pthread_detach((pthread_t)(uintptr_t)t);}static int b_thread_equal(uint32_t a,uint32_t b){return pthread_equal((pthread_t)(uintptr_t)a,(pthread_t)(uintptr_t)b);}static void b_thread_exit(void*v){pthread_exit(v);}static int b_thread_join(uint32_t t,void**v){if(t<0x10000u)return ESRCH;return pthread_join((pthread_t)(uintptr_t)t,v);}static uint32_t b_thread_self(void){return(uint32_t)(uintptr_t)pthread_self();}static int b_thread_keydel(uint32_t k){return pthread_key_delete((pthread_key_t)k);}static int b_thread_once(uint32_t*c,void(*fn)(void)){return pthread_once((pthread_once_t*)c,fn);}
           static int b_rwlock_init(uint32_t*s,const void*a){pthread_rwlock_t*r=calloc(1,sizeof*r);(void)a;pthread_rwlock_init(r,NULL);*s=U32(r);return 0;}static pthread_rwlock_t*b_rw_get(uint32_t*s){return(pthread_rwlock_t*)(uintptr_t)*s;}static int b_rw_rd(uint32_t*s){return pthread_rwlock_rdlock(b_rw_get(s));}static int b_rw_wr(uint32_t*s){return pthread_rwlock_wrlock(b_rw_get(s));}static int b_rw_un(uint32_t*s){return pthread_rwlock_unlock(b_rw_get(s));}static int b_rw_des(uint32_t*s){if(*s>0xffff){pthread_rwlock_t*r=(void*)(uintptr_t)*s;pthread_rwlock_destroy(r);free(r);}*s=0;return 0;}
           static int b_sig_suspend(const uint32_t*s){sigset_t h;int i;sigemptyset(&h);for(i=0;i<32;i++)if(*s&(1u<<i))sigaddset(&h,i+1);return sigsuspend(&h);}static void b_sig_alt(const void*a,void*b){sigaltstack((const stack_t*)a,(stack_t*)b);}
-          static int b_android_api(void){return 30;}static void b_choreo(void*a,void*b,void*c){(void)a;(void)b;(void)c;}
+          static int b_android_api(void){return 30;}typedef struct{void*cb;void*data;int is64;}ChoreoReq;
+          static ChoreoReq g_chq[64];static int g_chn,g_choreo_started,g_choreo_obj;static pthread_mutex_t g_chm=PTHREAD_MUTEX_INITIALIZER;
+          static void*choreo_thread(void*a){(void)a;pthread_setname_np(pthread_self(),"Choreographer");
+           for(;;){ChoreoReq q[64];int n,i;struct timespec ts;int64_t ns;usleep(16667);
+            pthread_mutex_lock(&g_chm);n=g_chn;memcpy(q,g_chq,sizeof(ChoreoReq)*(size_t)n);g_chn=0;pthread_mutex_unlock(&g_chm);
+            clock_gettime(CLOCK_MONOTONIC,&ts);ns=(int64_t)ts.tv_sec*1000000000LL+ts.tv_nsec;
+            for(i=0;i<n;i++){if(q[i].is64)((void(*)(int64_t,void*))q[i].cb)(ns,q[i].data);else ((void(*)(long,void*))q[i].cb)((long)(ns&0x7fffffffLL),q[i].data);}
+           }return NULL;}
+          static void choreo_post(void*cb,void*data,int is64){if(!cb)return;pthread_mutex_lock(&g_chm);
+           if(g_chn<64){g_chq[g_chn].cb=cb;g_chq[g_chn].data=data;g_chq[g_chn].is64=is64;g_chn++;}
+           if(!g_choreo_started){pthread_t t;if(pthread_create(&t,NULL,choreo_thread,NULL)==0){pthread_detach(t);g_choreo_started=1;}}
+           pthread_mutex_unlock(&g_chm);}
+          static void*b_choreo_get(void){return &g_choreo_obj;}
+          static void b_choreo32(void*c,void*cb,void*d){(void)c;choreo_post(cb,d,0);}
+          static void b_choreo64(void*c,void*cb,void*d){(void)c;choreo_post(cb,d,1);}
           static int b_isw_l(wint_t c,void*l){(void)l;return iswalpha(c);}static long long b_strtoll_l(const char*s,char**e,int b,void*l){(void)l;return strtoll(s,e,b);}
           static int b_newlocale(int c,const char*m,void*l){(void)c;(void)m;(void)l;return 1;}static int b_locale_noop(void*p){(void)p;return 0;}static int b_locale_set(int c,const char*l){(void)c;(void)l;return 0;}
           static int b_setjmp(void*p){return _setjmp((struct __jmp_buf_tag*)p);}static void b_longjmp(void*p,int v){longjmp((struct __jmp_buf_tag*)p,v);}
@@ -1020,7 +1090,7 @@ jobs:
           static int b_mxinit(uint32_t*s,const long*a){pthread_mutex_t*m=calloc(1,sizeof*m);pthread_mutexattr_t x;pthread_mutexattr_init(&x);if(a&&*a==1)pthread_mutexattr_settype(&x,PTHREAD_MUTEX_RECURSIVE);pthread_mutex_init(m,&x);pthread_mutexattr_destroy(&x);*s=U32(m);return 0;}static int b_mxdestroy(uint32_t*s){if(*s>0xffff){pthread_mutex_t*m=(void*)(uintptr_t)*s;pthread_mutex_destroy(m);free(m);}*s=0;return 0;}static int b_mxlock(uint32_t*s){return pthread_mutex_lock(mx_get(s));}static int b_mxunlock(uint32_t*s){return pthread_mutex_unlock(mx_get(s));}static int b_mxtry(uint32_t*s){return pthread_mutex_trylock(mx_get(s));}
           static pthread_cond_t*cv_get(uint32_t*s){uint32_t v=*s;if(v>0xffff)return(pthread_cond_t*)(uintptr_t)v;pthread_mutex_lock(&g_initlock);v=*s;if(v<=0xffff){pthread_cond_t*c=calloc(1,sizeof*c);pthread_cond_init(c,NULL);v=U32(c);*s=v;}pthread_mutex_unlock(&g_initlock);return(pthread_cond_t*)(uintptr_t)v;}static int b_cvinit(uint32_t*s,const void*a){pthread_cond_t*c=calloc(1,sizeof*c);(void)a;pthread_cond_init(c,NULL);*s=U32(c);return 0;}static int b_cvwait(uint32_t*c,uint32_t*m){return pthread_cond_wait(cv_get(c),mx_get(m));}static int b_cvtimed(uint32_t*c,uint32_t*m,const struct timespec*t){return pthread_cond_timedwait(cv_get(c),mx_get(m),t);}static int b_cvsignal(uint32_t*c){return pthread_cond_signal(cv_get(c));}static int b_cvbroad(uint32_t*c){return pthread_cond_broadcast(cv_get(c));}static int b_cvdes(uint32_t*s){if(*s>0xffff){pthread_cond_t*c=(void*)(uintptr_t)*s;pthread_cond_destroy(c);free(c);}*s=0;return 0;}
           static int b_attrinit(uint32_t*s){pthread_attr_t*a=calloc(1,sizeof*a);pthread_attr_init(a);*s=U32(a);return 0;}static int b_attrdes(uint32_t*s){pthread_attr_t*a=(void*)(uintptr_t)*s;if(a){pthread_attr_destroy(a);free(a);}*s=0;return 0;}static int b_attrstack(uint32_t*s,size_t z){return pthread_attr_setstacksize((void*)(uintptr_t)*s,z);}typedef struct{void*(*fn)(void*);void*arg;}Thr;static void*thr_start(void*p){Thr t=*(Thr*)p;free(p);{stack_t ss;ss.ss_sp=malloc(1u<<16);ss.ss_size=1u<<16;ss.ss_flags=0;if(ss.ss_sp)sigaltstack(&ss,NULL);}return t.fn(t.arg);}static int b_thrcreate(pthread_t*t,const uint32_t*a,void*(*fn)(void*),void*x){pthread_attr_t local,*pa;int own=0;size_t ss=0;Thr*b=malloc(sizeof* b);if(!b)return 12;b->fn=fn;b->arg=x;if(a&&*a>0xffff)pa=(void*)(uintptr_t)*a;else{pthread_attr_init(&local);pa=&local;own=1;}if(pthread_attr_getstacksize(pa,&ss)==0&&ss<(2u<<20))pthread_attr_setstacksize(pa,8u<<20);{int r=pthread_create(t,pa,thr_start,b);if(own)pthread_attr_destroy(&local);if(r)free(b);return r;}}
-          static int b_sem_init(uint32_t*s,int p,unsigned v){sem_t*x=calloc(1,sizeof*x);sem_init(x,p,v);*s=U32(x);return 0;}static int b_sem_wait(uint32_t*s){return sem_wait((sem_t*)(uintptr_t)*s);}static int b_sem_post(uint32_t*s){return sem_post((sem_t*)(uintptr_t)*s);}static int b_sem_des(uint32_t*s){if(*s){sem_t*x=(void*)(uintptr_t)*s;sem_destroy(x);free(x);}*s=0;return 0;}static int b_sem_get(uint32_t*s,int*v){return sem_getvalue((sem_t*)(uintptr_t)*s,v);}
+          
           static int b_strerror_r(int e,char*b,size_t n){if(!n)return EINVAL;snprintf(b,n,"%s",strerror(e));return 0;}static long b_sysconf(int n){int k;switch(n){case 0:k=_SC_ARG_MAX;break;case 1:k=_SC_CHILD_MAX;break;case 2:k=_SC_CLK_TCK;break;case 3:k=_SC_NGROUPS_MAX;break;case 4:k=_SC_OPEN_MAX;break;case 0x27:case 0x28:k=_SC_PAGESIZE;break;case 0x60:k=_SC_NPROCESSORS_CONF;break;case 0x61:k=_SC_NPROCESSORS_ONLN;break;case 0x62:k=_SC_PHYS_PAGES;break;case 0x63:k=_SC_AVPHYS_PAGES;break;default:errno=EINVAL;return -1;}return sysconf(k);}
           static int b_strprop(const char*n,char*v){const char*x="";if(n&&!strcmp(n,"ro.build.version.sdk"))x="30";else if(n&&!strcmp(n,"ro.product.cpu.abi"))x="armeabi-v7a";if(v)memcpy(v,x,strlen(x)+1);return(int)strlen(x);}static void*propfind(const char*n){(void)n;return NULL;}static int propread(const void*p,char*n,char*v){(void)p;if(n)*n=0;if(v)*v=0;return 0;}
           static int b_regatfork(void(*p)(void),void(*c)(void),void(*d)(void)){(void)p;(void)c;(void)d;return 0;}static int b_ctype_mb(void){return 1;}
@@ -1129,6 +1199,19 @@ jobs:
           GLWRAP0(glVertexAttrib3f,(unsigned a,float b,float c,float d),(unsigned,float,float,float),(a,b,c,d))
           GLWRAP0(glSamplerParameterf,(unsigned a,unsigned b,float c),(unsigned,unsigned,float),(a,b,c))
           #undef GLWRAP0
+          /* diag9: telusuri kegagalan shader. Log hanya saat compile/link GAGAL, plus potongan awal source. */
+          static char g_glsrc[256][200];static int g_gllog;
+          static void w_glShaderSource(unsigned sh,int cnt,const char*const*str,const int*len){typedef void(*F)(unsigned,int,const char*const*,const int*);static F f;if(!f)f=(F)dlsym(h_gles,"glShaderSource");
+           if(cnt>0&&str&&str[0]){char*d=g_glsrc[sh&255];size_t k;snprintf(d,sizeof g_glsrc[0],"%.190s",str[0]);for(k=0;d[k];k++)if(d[k]=='\n')d[k]='|';}
+           if(f)f(sh,cnt,str,len);}
+          static void w_glCompileShader(unsigned sh){typedef void(*F)(unsigned);typedef void(*GI)(unsigned,unsigned,int*);typedef void(*GL)(unsigned,int,int*,char*);static F f;static GI gi;static GL gl;int ok=1;
+           if(!f){f=(F)dlsym(h_gles,"glCompileShader");gi=(GI)dlsym(h_gles,"glGetShaderiv");gl=(GL)dlsym(h_gles,"glGetShaderInfoLog");}
+           if(f)f(sh);
+           if(gi){gi(sh,0x8B81,&ok);if(!ok&&g_gllog++<12){char b[600]="";int n=0;if(gl)gl(sh,sizeof b,&n,b);L("[GL] compile GAGAL shader=%u log=\"%s\" src=\"%s\"\n",sh,b,g_glsrc[sh&255]);}}}
+          static void w_glLinkProgram(unsigned p){typedef void(*F)(unsigned);typedef void(*GI)(unsigned,unsigned,int*);typedef void(*GL)(unsigned,int,int*,char*);static F f;static GI gi;static GL gl;int ok=1;
+           if(!f){f=(F)dlsym(h_gles,"glLinkProgram");gi=(GI)dlsym(h_gles,"glGetProgramiv");gl=(GL)dlsym(h_gles,"glGetProgramInfoLog");}
+           if(f)f(p);
+           if(gi){gi(p,0x8B82,&ok);if(!ok&&g_gllog++<12){char b[600]="";int n=0,att=0;gi(p,0x8B85,&att);if(gl)gl(p,sizeof b,&n,b);L("[GL] link GAGAL program=%u attached=%d log=\"%s\"\n",p,att,b);}}}
 
           /* ======================= SDL / EGL hibrida ======================= */
           static void *sdl_h,*sdl_win,*sdl_ctx;
@@ -1137,17 +1220,48 @@ jobs:
           static int(*r_eglGetError)(void);static void*(*r_eglGetDisplay)(void*);static int(*r_eglInitialize)(void*,int*,int*);static int(*r_eglTerminate)(void*);static int(*r_eglChooseConfig)(void*,const int*,void**,int,int*);static int(*r_eglGetConfigAttrib)(void*,void*,int,int*);static void*(*r_eglCreateContext)(void*,void*,void*,const int*);static int(*r_eglDestroyContext)(void*,void*);static void*(*r_eglCreateWindowSurface)(void*,void*,void*,const int*);static int(*r_eglDestroySurface)(void*,void*);static int(*r_eglMakeCurrent)(void*,void*,void*,void*);static int(*r_eglSwapBuffers)(void*,void*);static const char*(*r_eglQueryString)(void*,int);static int(*r_eglQuerySurface)(void*,void*,int,int*);static int(*r_eglSurfaceAttrib)(void*,void*,int,int);static void*(*r_eglCreatePbufferSurface)(void*,void*,const int*);static void*(*r_eglGetCurrentContext)(void);static void*(*r_eglGetCurrentSurface)(int);static void*(*r_eglGetCurrentDisplay)(void);
           typedef struct{void*dpy,*ctx,*surf,*cfg;int ok,ctx_given;unsigned long swaps;}Gfx;static Gfx g_gfx;
           static int gfx_w=640,gfx_h=480;static volatile int g_m2_done,g_m2_ready;static volatile unsigned long g_m2_frames;static void*g_unity_self;static unsigned g_pad_btns;static float g_cur_x=320,g_cur_y=240;static int g_touch_down;
-          static void*host_find(const char*n){void*p;if(h_egl&&(p=dlsym(h_egl,n)))return p;if(h_gles&&(p=dlsym(h_gles,n)))return p;return NULL;}
+          static int g_eglog;static void*host_find(const char*n){void*p;if(h_egl&&(p=dlsym(h_egl,n)))return p;if(h_gles&&(p=dlsym(h_gles,n)))return p;return NULL;}
           static void*egl_get_display(void*n){return g_gfx.ok?g_gfx.dpy:(r_eglGetDisplay?r_eglGetDisplay(n):NULL);}static int egl_choose(void*d,const int*a,void**c,int z,int*n){if(!g_gfx.ok)return r_eglChooseConfig? r_eglChooseConfig(d,a,c,z,n):0;if(c&&z)c[0]=g_gfx.cfg;if(n)*n=1;return 1;}
-          static void*egl_ctx(void*d,void*c,void*s,const int*a){if(!g_gfx.ok)return r_eglCreateContext(d,c,s,a);if(!g_gfx.ctx_given&&!s){g_gfx.ctx_given=1;return g_gfx.ctx;}return r_eglCreateContext(d,g_gfx.cfg,s,a);}
+          static void*egl_ctx(void*d,void*c,void*s,const int*a){if(g_eglog++<80){char b[200]="";int i,o=0;for(i=0;a&&a[i]!=0x3038&&i<16&&o<180;i+=2)o+=snprintf(b+o,sizeof b-(size_t)o,"%x=%d ",a[i],a[i+1]);L("[EGL] CreateContext tid=%d share=%p attrs: %s\n",(int)syscall(SYS_gettid),s,b);}if(!g_gfx.ok)return r_eglCreateContext(d,c,s,a);if(!g_gfx.ctx_given&&!s){g_gfx.ctx_given=1;return g_gfx.ctx;}return r_eglCreateContext(d,g_gfx.cfg,s,a);}
           static void*egl_win(void*d,void*c,void*w,const int*a){(void)d;(void)c;(void)w;(void)a;return g_gfx.surf;}
           static int egl_swap(void*d,void*s){int r;if(!r_eglSwapBuffers)return 0;r=r_eglSwapBuffers(d,s);g_gfx.swaps++;return r;}
-          static int egl_make(void*d,void*a,void*b,void*c){if(!r_eglMakeCurrent)return 0;return r_eglMakeCurrent(d,a,b,c);}
+          /* diag10: serah-terima konteks EGL antar thread. Log diag9: thread render kita (tid A) selalu memegang konteks Unity,
+             sehingga UnityGfxDeviceWorker (tid B) gagal EGL_BAD_ACCESS -> semua panggilan GL di worker tanpa konteks ->
+             "GLSL link failed, no info log" -> crash. Di Android asli konteks dipegang worker. Di sini:
+             - worker yang minta konteks milik thread lain: tunggu sampai 300 ms, thread pemilik melepas (yield) di panggilan
+               eglMakeCurrent berikutnya atau setelah nativeRender selesai;
+             - thread render kita (g_unity_tid) yang minta konteks milik worker: pura-pura sukses (pemilik sah = worker). */
+          typedef struct{void*ctx;volatile int owner,want;}EglOwn;
+          static EglOwn g_egl_own[8];static pthread_mutex_t g_eglmu=PTHREAD_MUTEX_INITIALIZER;static volatile int g_unity_tid,g_egl_want;
+          static EglOwn*egl_ent(void*ctx){int i;for(i=0;i<8;i++)if(g_egl_own[i].ctx==ctx)return &g_egl_own[i];for(i=0;i<8;i++)if(!g_egl_own[i].ctx){g_egl_own[i].ctx=ctx;return &g_egl_own[i];}return &g_egl_own[7];}
+          static void egl_yield_me(void){int me=(int)syscall(SYS_gettid),i;if(!g_egl_want||!r_eglMakeCurrent)return;
+           pthread_mutex_lock(&g_eglmu);
+           for(i=0;i<8;i++)if(g_egl_own[i].ctx&&g_egl_own[i].owner==me&&g_egl_own[i].want&&g_egl_own[i].want!=me){r_eglMakeCurrent(g_gfx.dpy,NULL,NULL,NULL);g_egl_own[i].owner=0;if(g_eglog++<150)L("[EGL] yield tid=%d ctx=%p (diminta tid=%d)\\n",me,g_egl_own[i].ctx,g_egl_own[i].want);}
+           pthread_mutex_unlock(&g_eglmu);}
+          static int egl_make(void*d,void*a,void*b,void*c){int r,me=(int)syscall(SYS_gettid),k;EglOwn*e;
+           if(!r_eglMakeCurrent)return 0;
+           if(!c){r=r_eglMakeCurrent(d,a,b,c);pthread_mutex_lock(&g_eglmu);for(k=0;k<8;k++)if(g_egl_own[k].owner==me)g_egl_own[k].owner=0;pthread_mutex_unlock(&g_eglmu);if(g_eglog++<150)L("[EGL] MakeCurrent(NONE) tid=%d -> %d\\n",me,r);return r;}
+           pthread_mutex_lock(&g_eglmu);e=egl_ent(c);
+           if(e->owner&&e->owner!=me){
+            if(me==g_unity_tid){pthread_mutex_unlock(&g_eglmu);if(g_eglog++<150)L("[EGL] MakeCurrent tid=%d (thread render) ctx=%p dimiliki tid=%d -> pura-pura OK\\n",me,c,(int)e->owner);return 1;}
+            e->want=me;g_egl_want=1;pthread_mutex_unlock(&g_eglmu);
+            for(k=0;k<300&&e->owner&&e->owner!=me;k++)usleep(1000);
+            pthread_mutex_lock(&g_eglmu);
+            if(g_eglog++<150)L("[EGL] tid=%d menunggu ctx=%p: %s setelah %d ms\\n",me,c,(e->owner&&e->owner!=me)?"MASIH dipegang":"dilepas",k);
+           }else if(e->owner==me&&e->want&&e->want!=me){
+            r_eglMakeCurrent(d,NULL,NULL,NULL);e->owner=0;pthread_mutex_unlock(&g_eglmu);
+            if(g_eglog++<150)L("[EGL] yield tid=%d ctx=%p (diminta tid=%d)\\n",me,c,(int)e->want);return 1;}
+           r=r_eglMakeCurrent(d,a,b,c);
+           if(r){e->owner=me;if(e->want==me)e->want=0;}
+           pthread_mutex_unlock(&g_eglmu);
+           if(g_eglog++<150)L("[EGL] MakeCurrent tid=%d draw=%p ctx=%p -> %d\\n",me,a,c,r);
+           return r;}
+          static unsigned egl_relthread(void){unsigned(*f)(void)=(unsigned(*)(void))dlsym(h_egl,"eglReleaseThread");int me=(int)syscall(SYS_gettid),k;pthread_mutex_lock(&g_eglmu);for(k=0;k<8;k++)if(g_egl_own[k].owner==me)g_egl_own[k].owner=0;pthread_mutex_unlock(&g_eglmu);if(g_eglog++<150)L("[EGL] eglReleaseThread tid=%d\\n",me);return f?f():1;}
           static int egl_destroy_s(void*d,void*s){if(g_gfx.ok&&s==g_gfx.surf)return 1;return r_eglDestroySurface?r_eglDestroySurface(d,s):0;}
           static int egl_destroy_c(void*d,void*c){if(g_gfx.ok&&c==g_gfx.ctx)return 1;return r_eglDestroyContext?r_eglDestroyContext(d,c):0;}
           static int egl_term(void*d){if(g_gfx.ok&&d==g_gfx.dpy)return 1;return r_eglTerminate?r_eglTerminate(d):0;}
           static void*egl_pbuffer(void*d,void*c,const int*a){return r_eglCreatePbufferSurface?r_eglCreatePbufferSurface(d,c,a):NULL;}
-          static int egl_getcfg(void*d,void*c,int a,int*v){if(g_gfx.ok&&c==g_gfx.cfg){if(a==0x3028){*v=1;return 1;}}return r_eglGetConfigAttrib?r_eglGetConfigAttrib(d,c,a,v):0;}
+          static int egl_getcfg(void*d,void*c,int a,int*v){if(g_gfx.ok&&c==g_gfx.cfg&&c==(void*)1){if(a==0x3028){*v=1;return 1;}}return r_eglGetConfigAttrib?r_eglGetConfigAttrib(d,c,a,v):0;}
           static int egl_qsurf(void*d,void*s,int a,int*v){if(g_gfx.ok&&s==g_gfx.surf){if(a==0x3057)*v=gfx_w;else if(a==0x3056)*v=gfx_h;else *v=0;return 1;}return r_eglQuerySurface?r_eglQuerySurface(d,s,a,v):0;}
           static int egl_sattr(void*d,void*s,int a,int v){return r_eglSurfaceAttrib?r_eglSurfaceAttrib(d,s,a,v):0;}
           static const char*egl_qstr(void*d,int n){return r_eglQueryString?r_eglQueryString(d,n):"";}
@@ -1158,6 +1272,7 @@ jobs:
           static void*egl_cur_surf(int t){if(g_gfx.ok)return g_gfx.surf;return r_eglGetCurrentSurface?r_eglGetCurrentSurface(t):NULL;}
           static void*egl_cur_ctx(void){if(g_gfx.ok)return g_gfx.ctx;return r_eglGetCurrentContext?r_eglGetCurrentContext():NULL;}
           static void*egl_proc(const char*n){
+           if(!strcmp(n,"glShaderSource"))return w_glShaderSource; if(!strcmp(n,"glCompileShader"))return w_glCompileShader; if(!strcmp(n,"glLinkProgram"))return w_glLinkProgram;
            if(!strcmp(n,"glClearColor"))return w_glClearColor; if(!strcmp(n,"glClearDepthf"))return w_glClearDepthf;
            if(!strcmp(n,"glTexParameterf"))return w_glTexParameterf; if(!strcmp(n,"glPolygonOffset"))return w_glPolygonOffset;
            if(!strcmp(n,"glVertexAttrib4f"))return w_glVertexAttrib4f;
@@ -1176,14 +1291,20 @@ jobs:
           SYM(SDL_Init);SYM(SDL_GetError);SYM(SDL_GL_SetAttribute);SYM(SDL_CreateWindow);SYM(SDL_GL_CreateContext);SYM(SDL_GL_MakeCurrent);SYM(SDL_GL_GetDrawableSize);SYM(SDL_PollEvent);SYM(SDL_GL_SetSwapInterval);SYM(SDL_InitSubSystem);SYM(SDL_NumJoysticks);SYM(SDL_JoystickOpen);SYM(SDL_JoystickNameForIndex);SYM(SDL_IsGameController);SYM(SDL_GameControllerOpen);SYM(SDL_GameControllerEventState);
           #undef SYM
            if(p_SDL_Init(0x20)!=0){L("[gfx] SDL_Init: %s\n",p_SDL_GetError());return -1;}p_SDL_GL_SetAttribute(0,8);p_SDL_GL_SetAttribute(1,8);p_SDL_GL_SetAttribute(2,8);p_SDL_GL_SetAttribute(3,0);p_SDL_GL_SetAttribute(5,1);p_SDL_GL_SetAttribute(6,24);p_SDL_GL_SetAttribute(7,8);p_SDL_GL_SetAttribute(17,3);p_SDL_GL_SetAttribute(18,0);p_SDL_GL_SetAttribute(21,4);
-           sdl_win=p_SDL_CreateWindow("Let Me Eat",0x1fff0000,0x1fff0000,640,480,0x2u|0x1001u);if(!sdl_win){L("[gfx] SDL_CreateWindow: %s\n",p_SDL_GetError());return -1;}sdl_ctx=p_SDL_GL_CreateContext(sdl_win);if(!sdl_ctx){L("[gfx] SDL_GL_CreateContext: %s\n",p_SDL_GetError());return -1;}p_SDL_GL_GetDrawableSize(sdl_win,&w,&h);gfx_w=w>0?w:640;gfx_h=h>0?h:480;g_nwin.w=gfx_w;g_nwin.h=gfx_h;
+           sdl_win=p_SDL_CreateWindow("Let Me Eat",0x1fff0000,0x1fff0000,640,480,0x2u|0x1001u);if(!sdl_win){L("[gfx] SDL_CreateWindow: %s\n",p_SDL_GetError());return -1;}{int mn;sdl_ctx=NULL;for(mn=2;mn>=0&&!sdl_ctx;mn--){p_SDL_GL_SetAttribute(18,mn);sdl_ctx=p_SDL_GL_CreateContext(sdl_win);L("[gfx] SDL_GL_CreateContext GLES 3.%d -> %s\n",mn,sdl_ctx?"OK":"gagal");}}if(!sdl_ctx){L("[gfx] SDL_GL_CreateContext: %s\n",p_SDL_GetError());return -1;}p_SDL_GL_GetDrawableSize(sdl_win,&w,&h);gfx_w=w>0?w:640;gfx_h=h>0?h:480;g_nwin.w=gfx_w;g_nwin.h=gfx_h;
           #define E(n) (*(void**)&r_##n=dlsym(h_egl,#n))
            E(eglGetError);E(eglGetDisplay);E(eglInitialize);E(eglTerminate);E(eglChooseConfig);E(eglGetConfigAttrib);E(eglCreateContext);E(eglDestroyContext);E(eglCreateWindowSurface);E(eglDestroySurface);E(eglMakeCurrent);E(eglSwapBuffers);E(eglQueryString);E(eglQuerySurface);E(eglSurfaceAttrib);E(eglCreatePbufferSurface);E(eglGetCurrentContext);E(eglGetCurrentSurface);E(eglGetCurrentDisplay);
           #undef E
            if(!r_eglGetCurrentDisplay||!r_eglGetCurrentContext||!r_eglGetCurrentSurface||!r_eglMakeCurrent||!r_eglCreateContext||!r_eglChooseConfig||!r_eglSwapBuffers){L("[gfx] EGL entry point kurang\n");return -1;}
            g_gfx.dpy=r_eglGetCurrentDisplay();g_gfx.ctx=r_eglGetCurrentContext();g_gfx.surf=r_eglGetCurrentSurface(0x3059);if(!g_gfx.dpy||!g_gfx.ctx||!g_gfx.surf){L("[gfx] SDL EGL context tidak aktif dpy=%p ctx=%p surf=%p\n",g_gfx.dpy,g_gfx.ctx,g_gfx.surf);return -1;}
-           {int id=0,n=0,attrs[3]={0x3028,0,0x3038};if(r_eglGetConfigAttrib)r_eglGetConfigAttrib(g_gfx.dpy,NULL,0x3028,&id);attrs[1]=id;r_eglChooseConfig(g_gfx.dpy,attrs,&g_gfx.cfg,1,&n);if(!n||!g_gfx.cfg){g_gfx.cfg=(void*)1;}}
-           p_SDL_GL_SetSwapInterval(1);p_SDL_GL_MakeCurrent(sdl_win,NULL);g_gfx.ok=1;L("[gfx] SDL2/EGL OK %dx%d dpy=%p ctx=%p surf=%p cfg=%p\n",gfx_w,gfx_h,g_gfx.dpy,g_gfx.ctx,g_gfx.surf,g_gfx.cfg);return 0;}
+           {int id=0,n=0,attrs[3]={0x3028,0,0x3038};int(*qc)(void*,void*,int,int*)=(int(*)(void*,void*,int,int*))dlsym(h_egl,"eglQueryContext");
+           g_gfx.cfg=NULL;
+           if(qc&&qc(g_gfx.dpy,g_gfx.ctx,0x3028,&id)){attrs[1]=id;n=0;if(!r_eglChooseConfig(g_gfx.dpy,attrs,&g_gfx.cfg,1,&n)||!n)g_gfx.cfg=NULL;}
+           if(!g_gfx.cfg){int a2[]={0x3033,0x4,0x3040,0x4,0x3038};n=0;if(!r_eglChooseConfig(g_gfx.dpy,a2,&g_gfx.cfg,1,&n)||!n)g_gfx.cfg=NULL;L("[gfx] config via query konteks gagal (id=%d) -> cari generik: %p\n",id,g_gfx.cfg);}
+           L("[gfx] EGLConfig SDL id=%d cfg=%p\n",id,g_gfx.cfg);
+           if(!g_gfx.cfg){g_gfx.cfg=(void*)1;L("[gfx] PERINGATAN: config asli tidak ditemukan, pakai palsu\n");}}
+           {const unsigned char*(*gs)(unsigned)=(const unsigned char*(*)(unsigned))dlsym(h_gles,"glGetString");if(gs)L("[GL] vendor=%s | renderer=%s | version=%s | glsl=%s\n",(const char*)gs(0x1F00),(const char*)gs(0x1F01),(const char*)gs(0x1F02),(const char*)gs(0x8B8C));}
+          p_SDL_GL_SetSwapInterval(1);p_SDL_GL_MakeCurrent(sdl_win,NULL);g_gfx.ok=1;L("[gfx] SDL2/EGL OK %dx%d dpy=%p ctx=%p surf=%p cfg=%p\n",gfx_w,gfx_h,g_gfx.dpy,g_gfx.ctx,g_gfx.surf,g_gfx.cfg);return 0;}
 
           /* ======================= input -> MotionEvent JNI ======================= */
           static uint64_t touch_down_time;
@@ -1226,6 +1347,21 @@ jobs:
            if(g_cur_x<0)g_cur_x=0;if(g_cur_x>gfx_w-1)g_cur_x=gfx_w-1;if(g_cur_y<0)g_cur_y=0;if(g_cur_y>gfx_h-1)g_cur_y=gfx_h-1;}
 
           /* ======================= shim map & host resolver ======================= */
+          /* pthread_attr_t bionic cuma 24 byte, glibc 36 byte. pthread_getattr_np dan
+             pthread_attr_get* milik glibc yang dipanggil langsung oleh game menulis
+             36 byte ke struct 24-byte milik game -> menimpa 12 byte di sebelahnya ->
+             heap/stack rusak. Maka attr dipegang sebagai pointer ke struct glibc di heap
+             (sama seperti pthread_attr_init) dan semua fungsi attr dialihkan lewat pointer. */
+          static pthread_attr_t*ap_(uint32_t*s){return(*s>0xffffu)?(pthread_attr_t*)(uintptr_t)*s:NULL;}
+          static int b_getattr_np(pthread_t t,uint32_t*s){pthread_attr_t*a=calloc(1,sizeof*a);int r;if(!a)return 12;r=pthread_getattr_np(t,a);if(r){free(a);return r;}*s=U32(a);return 0;}
+          static int b_setname_np(uint32_t t,const char*n){(void)t;(void)n;return 0;}static int b_getname_np(uint32_t t,char*n,size_t z){(void)t;if(n&&z)n[0]=0;return 0;}
+          static int b_attr_getstack(uint32_t*s,void**ad,size_t*sz){pthread_attr_t*a=ap_(s);return a?pthread_attr_getstack(a,ad,sz):22;}
+          static int b_attr_getstacksize(uint32_t*s,size_t*sz){pthread_attr_t*a=ap_(s);return a?pthread_attr_getstacksize(a,sz):22;}
+          static int b_attr_getguardsize(uint32_t*s,size_t*sz){pthread_attr_t*a=ap_(s);return a?pthread_attr_getguardsize(a,sz):22;}
+          static int b_attr_setguardsize(uint32_t*s,size_t sz){pthread_attr_t*a=ap_(s);return a?pthread_attr_setguardsize(a,sz):22;}
+          static int b_attr_getdetach(uint32_t*s,int*d){pthread_attr_t*a=ap_(s);return a?pthread_attr_getdetachstate(a,d):22;}
+          static int b_attr_setstack(uint32_t*s,void*ad,size_t sz){pthread_attr_t*a=ap_(s);return a?pthread_attr_setstack(a,ad,sz):22;}
+          static int b_attr_noop(uint32_t*s,...){(void)s;return 0;}
           typedef struct{const char*n;void*p;}Shim;
           static const Shim shim[]={
            {"__errno",(void*)b_errno_ptr},{"__sF",bionic_sF},{"__stack_chk_guard",&b_stack_chk_guard},{"__register_atfork",(void*)b_regatfork},{"__android_log_print",(void*)b_log_print},{"__android_log_vprint",(void*)b_log_vprint},{"__android_log_write",(void*)b_log_write},{"__assert2",(void*)b_assert2},{"__aeabi_atexit",(void*)b_atexit},{"android_set_abort_message",(void*)b_abort_msg},{"android_get_device_api_level",(void*)b_android_api},
@@ -1234,20 +1370,20 @@ jobs:
            {"readdir",(void*)b_readdir},{"readdir_r",(void*)b_readdir_r},{"open",(void*)b_open},{"open64",(void*)b_open},{"exit",(void*)b_exit},{"_exit",(void*)b_exit},{"_Exit",(void*)b_exit},{"abort",(void*)b_abort_},{"kill",(void*)b_kill},{"raise",(void*)b_raise},
            {"pthread_mutex_init",(void*)b_mxinit},{"pthread_mutex_destroy",(void*)b_mxdestroy},{"pthread_mutex_lock",(void*)b_mxlock},{"pthread_mutex_unlock",(void*)b_mxunlock},{"pthread_mutex_trylock",(void*)b_mxtry},{"pthread_mutexattr_init",(void*)b_mutexattr_init},{"pthread_mutexattr_settype",(void*)b_mutexattr_settype},{"pthread_mutexattr_gettype",(void*)b_mutexattr_gettype},{"pthread_mutexattr_destroy",(void*)b_mutexattr_destroy},
            {"pthread_cond_init",(void*)b_cvinit},{"pthread_cond_wait",(void*)b_cvwait},{"pthread_cond_timedwait",(void*)b_cvtimed},{"pthread_cond_signal",(void*)b_cvsignal},{"pthread_cond_broadcast",(void*)b_cvbroad},{"pthread_cond_destroy",(void*)b_cvdes},{"pthread_condattr_init",(void*)b_condattr_init},{"pthread_condattr_destroy",(void*)b_condattr_destroy},
-           {"pthread_attr_init",(void*)b_attrinit},{"pthread_attr_destroy",(void*)b_attrdes},{"pthread_attr_setstacksize",(void*)b_attrstack},{"pthread_attr_setdetachstate",(void*)b_attr_detach},{"pthread_create",(void*)b_thrcreate},{"pthread_detach",(void*)b_thread_detach},{"pthread_equal",(void*)b_thread_equal},{"pthread_exit",(void*)b_thread_exit},{"pthread_join",(void*)b_thread_join},{"pthread_self",(void*)b_thread_self},{"pthread_key_delete",(void*)b_thread_keydel},{"pthread_once",(void*)b_thread_once},
+           {"pthread_attr_init",(void*)b_attrinit},{"pthread_attr_destroy",(void*)b_attrdes},{"pthread_attr_setstacksize",(void*)b_attrstack},{"pthread_attr_setdetachstate",(void*)b_attr_detach},{"pthread_getattr_np",(void*)b_getattr_np},{"pthread_attr_getstack",(void*)b_attr_getstack},{"pthread_attr_getstacksize",(void*)b_attr_getstacksize},{"pthread_attr_getguardsize",(void*)b_attr_getguardsize},{"pthread_attr_setguardsize",(void*)b_attr_setguardsize},{"pthread_attr_getdetachstate",(void*)b_attr_getdetach},{"pthread_attr_setstack",(void*)b_attr_setstack},{"pthread_attr_setschedparam",(void*)b_attr_noop},{"pthread_attr_setschedpolicy",(void*)b_attr_noop},{"pthread_attr_setscope",(void*)b_attr_noop},{"pthread_attr_setinheritsched",(void*)b_attr_noop},{"pthread_create",(void*)b_thrcreate},{"pthread_detach",(void*)b_thread_detach},{"pthread_equal",(void*)b_thread_equal},{"pthread_setname_np",(void*)b_setname_np},{"pthread_getname_np",(void*)b_getname_np},{"pthread_exit",(void*)b_thread_exit},{"pthread_join",(void*)b_thread_join},{"pthread_self",(void*)b_thread_self},{"pthread_key_delete",(void*)b_thread_keydel},{"pthread_once",(void*)b_thread_once},
            {"pthread_rwlock_init",(void*)b_rwlock_init},{"pthread_rwlock_rdlock",(void*)b_rw_rd},{"pthread_rwlock_wrlock",(void*)b_rw_wr},{"pthread_rwlock_unlock",(void*)b_rw_un},{"pthread_rwlock_destroy",(void*)b_rw_des},
-           {"sem_init",(void*)b_sem_init},{"sem_wait",(void*)b_sem_wait},{"sem_trywait",(void*)b_sem_trywait},{"sem_post",(void*)b_sem_post},{"sem_destroy",(void*)b_sem_des},{"sem_getvalue",(void*)b_sem_get},
+           {"sem_init",(void*)b_sem_init},{"sem_wait",(void*)b_sem_wait},{"sem_trywait",(void*)b_sem_trywait},{"sem_post",(void*)b_sem_post},{"sem_destroy",(void*)b_sem_des},{"sem_getvalue",(void*)b_sem_get},{"sem_timedwait",(void*)b_sem_timedwait},{"sem_clockwait",(void*)b_sem_clockwait},
            {"sigaction",(void*)b_sigaction},{"sigprocmask",(void*)b_sigmask},{"pthread_sigmask",(void*)b_sigmask},{"sigemptyset",(void*)b_sigempty},{"sigfillset",(void*)b_sigfill},{"sigaddset",(void*)b_sigadd},{"sigdelset",(void*)b_sigdel},{"sigsuspend",(void*)b_sig_suspend},{"sigaltstack",(void*)b_sig_alt},{"setjmp",(void*)b_setjmp},{"_setjmp",(void*)b_setjmp},{"sigsetjmp",(void*)b_setjmp},{"__sigsetjmp",(void*)b_setjmp},{"longjmp",(void*)b_longjmp},{"_longjmp",(void*)b_longjmp},{"siglongjmp",(void*)b_longjmp},
            {"dlopen",(void*)b_dlopen},{"dlsym",(void*)b_dlsym},{"dlclose",(void*)b_dlclose},{"dlerror",(void*)b_dlerror},{"dladdr",(void*)b_dladdr},{"dl_iterate_phdr",(void*)b_dl_iterate_phdr},{"dl_unwind_find_exidx",(void*)b_dl_unwind_find_exidx},
            {"newlocale",(void*)b_newlocale},{"uselocale",(void*)b_locale_noop},{"freelocale",(void*)b_locale_noop},{"localeconv",(void*)b_locale_noop},{"setlocale",(void*)b_locale_set},{"strcoll_l",(void*)b_strcoll_l},{"strxfrm_l",(void*)b_strcoll_l},{"wcscoll_l",(void*)b_strcoll_l},{"wcsxfrm_l",(void*)b_strcoll_l},{"iswspace_l",(void*)b_isw_l},{"iswprint_l",(void*)b_isw_l},{"iswcntrl_l",(void*)b_isw_l},{"iswupper_l",(void*)b_isw_l},{"iswlower_l",(void*)b_isw_l},{"iswalpha_l",(void*)b_isw_l},{"iswdigit_l",(void*)b_isw_l},{"iswxdigit_l",(void*)b_isw_l},{"iswpunct_l",(void*)b_isw_l},{"iswblank_l",(void*)b_isw_l},{"towupper_l",(void*)b_isw_l},{"towlower_l",(void*)b_isw_l},{"strtoll_l",(void*)b_strtoll_l},{"strtoull_l",(void*)b_strtoll_l},{"strtold_l",(void*)b_strtoll_l},{"strftime_l",(void*)b_strtoll_l},
            {"__FD_SET_chk",(void*)b_fdset},{"__FD_CLR_chk",(void*)b_fdclr},{"__FD_ISSET_chk",(void*)b_fdisset},{"strlcpy",(void*)b_strlcpy},{"strlcat",(void*)b_strlcat},{"__strlcpy_chk",(void*)b_strlcpy_chk},{"__strlcat_chk",(void*)b_strlcat_chk},
            {"ANativeWindow_fromSurface",(void*)b_window_from},{"ANativeWindow_getWidth",(void*)b_winw},{"ANativeWindow_getHeight",(void*)b_winh},{"ANativeWindow_setBuffersGeometry",(void*)b_wingeom},{"ANativeWindow_acquire",(void*)b_winref},{"ANativeWindow_release",(void*)b_winref},{"ALooper_prepare",(void*)b_looper},{"ALooper_forThread",(void*)b_looper_thread},{"ALooper_pollOnce",(void*)b_poll},{"ALooper_pollAll",(void*)b_poll},{"ALooper_addFd",(void*)b_addfd},{"ALooper_removeFd",(void*)b_removefd},{"ALooper_wake",(void*)b_noop},{"ALooper_acquire",(void*)b_noop},{"ALooper_release",(void*)b_noop},
            {"ASensorManager_getInstance",(void*)b_sm},{"ASensorManager_getInstanceForPackage",(void*)b_sm},{"ASensorManager_getSensorList",(void*)b_sensorlist},{"ASensorManager_getDefaultSensor",(void*)b_sensor},{"ASensorManager_createEventQueue",(void*)b_sensorq},{"ASensorManager_destroyEventQueue",(void*)b_zero},{"ASensorEventQueue_enableSensor",(void*)b_minus},{"ASensorEventQueue_disableSensor",(void*)b_minus},{"ASensorEventQueue_setEventRate",(void*)b_minus},{"ASensorEventQueue_hasEvents",(void*)b_zero},{"ASensorEventQueue_getEvents",(void*)b_zero},{"ASensor_getType",(void*)b_zero},{"ASensor_getResolution",(void*)b_sres},{"ASensor_getMinDelay",(void*)b_zero},{"ASensor_getName",(void*)b_sstr},{"ASensor_getVendor",(void*)b_sstr},
-           {"AChoreographer_getInstance",(void*)b_noop},{"AChoreographer_postFrameCallback",(void*)b_choreo},{"AChoreographer_postFrameCallback64",(void*)b_choreo},
-           {"eglGetDisplay",(void*)egl_get_display},{"eglChooseConfig",(void*)egl_choose},{"eglCreateContext",(void*)egl_ctx},{"eglCreateWindowSurface",(void*)egl_win},{"eglSwapBuffers",(void*)egl_swap},{"eglMakeCurrent",(void*)egl_make},{"eglDestroySurface",(void*)egl_destroy_s},{"eglDestroyContext",(void*)egl_destroy_c},{"eglTerminate",(void*)egl_term},{"eglCreatePbufferSurface",(void*)egl_pbuffer},{"eglGetConfigAttrib",(void*)egl_getcfg},{"eglQuerySurface",(void*)egl_qsurf},{"eglSurfaceAttrib",(void*)egl_sattr},{"eglQueryString",(void*)egl_qstr},{"eglGetError",(void*)egl_err},{"eglGetProcAddress",(void*)egl_proc},{"eglInitialize",(void*)egl_init},{"eglSwapInterval",(void*)egl_swapint},{"eglGetCurrentSurface",(void*)egl_cur_surf},{"eglGetCurrentContext",(void*)egl_cur_ctx},
+           {"AChoreographer_getInstance",(void*)b_choreo_get},{"AChoreographer_postFrameCallback",(void*)b_choreo32},{"AChoreographer_postFrameCallback64",(void*)b_choreo64},
+           {"eglGetDisplay",(void*)egl_get_display},{"eglChooseConfig",(void*)egl_choose},{"eglCreateContext",(void*)egl_ctx},{"eglCreateWindowSurface",(void*)egl_win},{"eglSwapBuffers",(void*)egl_swap},{"eglMakeCurrent",(void*)egl_make},{"eglDestroySurface",(void*)egl_destroy_s},{"eglDestroyContext",(void*)egl_destroy_c},{"eglTerminate",(void*)egl_term},{"eglCreatePbufferSurface",(void*)egl_pbuffer},{"eglGetConfigAttrib",(void*)egl_getcfg},{"eglQuerySurface",(void*)egl_qsurf},{"eglSurfaceAttrib",(void*)egl_sattr},{"eglQueryString",(void*)egl_qstr},{"eglGetError",(void*)egl_err},{"eglGetProcAddress",(void*)egl_proc},{"eglInitialize",(void*)egl_init},{"eglSwapInterval",(void*)egl_swapint},{"eglGetCurrentSurface",(void*)egl_cur_surf},{"eglGetCurrentContext",(void*)egl_cur_ctx},{"eglReleaseThread",(void*)egl_relthread},
            {"sinf",(void*)w_sinf},{"cosf",(void*)w_cosf},{"tanf",(void*)w_tanf},{"acosf",(void*)w_acosf},{"asinf",(void*)w_asinf},{"atanf",(void*)w_atanf},{"sqrtf",(void*)w_sqrtf},{"expf",(void*)w_expf},{"exp2f",(void*)w_exp2f},{"logf",(void*)w_logf},{"log2f",(void*)w_log2f},{"log10f",(void*)w_log10f},{"floorf",(void*)w_floorf},{"ceilf",(void*)w_ceilf},{"fabsf",(void*)w_fabsf},{"roundf",(void*)w_roundf},{"truncf",(void*)w_truncf},{"rintf",(void*)w_rintf},{"cbrtf",(void*)w_cbrtf},{"tanhf",(void*)w_tanhf},{"powf",(void*)w_powf},{"atan2f",(void*)w_atan2f},{"fmodf",(void*)w_fmodf},{"hypotf",(void*)w_hypotf},{"fmaxf",(void*)w_fmaxf},{"fminf",(void*)w_fminf},{"sincosf",(void*)w_sincosf},{"ldexpf",(void*)w_ldexpf},{"scalbnf",(void*)w_scalbnf},{"modff",(void*)w_modff},{"frexpf",(void*)w_frexpf},{"lrintf",(void*)w_lrintf},{"lroundf",(void*)w_lroundf},{"strtof",(void*)w_strtof},{"wcstof",(void*)w_wcstof},
            {"sin",(void*)w_sin},{"cos",(void*)w_cos},{"tan",(void*)w_tan},{"acos",(void*)w_acos},{"asin",(void*)w_asin},{"atan",(void*)w_atan},{"sqrt",(void*)w_sqrt},{"exp",(void*)w_exp},{"exp2",(void*)w_exp2},{"log",(void*)w_log},{"log2",(void*)w_log2},{"log10",(void*)w_log10},{"floor",(void*)w_floor},{"ceil",(void*)w_ceil},{"fabs",(void*)w_fabs},{"round",(void*)w_round},{"trunc",(void*)w_trunc},{"rint",(void*)w_rint},{"cbrt",(void*)w_cbrt},{"tanh",(void*)w_tanh},{"sinh",(void*)w_sinh},{"logb",(void*)w_logb},{"pow",(void*)w_pow},{"atan2",(void*)w_atan2},{"fmod",(void*)w_fmod},{"hypot",(void*)w_hypot},{"fmax",(void*)w_fmax},{"fmin",(void*)w_fmin},{"sincos",(void*)w_sincos},{"ldexp",(void*)w_ldexp},{"scalbn",(void*)w_scalbn},{"modf",(void*)w_modf},{"frexp",(void*)w_frexp},{"lrint",(void*)w_lrint},{"lround",(void*)w_lround},{"difftime",(void*)w_difftime},{"strtod",(void*)w_strtod},{"strtold",(void*)w_strtold},{"wcstod",(void*)w_wcstod},{"wcstold",(void*)w_wcstold},
-           {"glClearColor",(void*)w_glClearColor},{"glClearDepthf",(void*)w_glClearDepthf},{"glTexParameterf",(void*)w_glTexParameterf},{"glPolygonOffset",(void*)w_glPolygonOffset},{"glVertexAttrib4f",(void*)w_glVertexAttrib4f},
+           {"glShaderSource",(void*)w_glShaderSource},{"glCompileShader",(void*)w_glCompileShader},{"glLinkProgram",(void*)w_glLinkProgram},{"glClearColor",(void*)w_glClearColor},{"glClearDepthf",(void*)w_glClearDepthf},{"glTexParameterf",(void*)w_glTexParameterf},{"glPolygonOffset",(void*)w_glPolygonOffset},{"glVertexAttrib4f",(void*)w_glVertexAttrib4f},
           {"glDepthRangef",(void*)w_glDepthRangef},{"glBlendColor",(void*)w_glBlendColor},{"glLineWidth",(void*)w_glLineWidth},{"glSampleCoverage",(void*)w_glSampleCoverage},{"glUniform1f",(void*)w_glUniform1f},{"glUniform2f",(void*)w_glUniform2f},{"glUniform3f",(void*)w_glUniform3f},{"glUniform4f",(void*)w_glUniform4f},{"glVertexAttrib1f",(void*)w_glVertexAttrib1f},{"glVertexAttrib2f",(void*)w_glVertexAttrib2f},{"glVertexAttrib3f",(void*)w_glVertexAttrib3f},{"glSamplerParameterf",(void*)w_glSamplerParameterf},
            {NULL,NULL}};
 
@@ -1258,18 +1394,20 @@ jobs:
           static int b_dl_iterate_phdr(int(*cb)(struct dl_phdr_info*,size_t,void*),void*d){int i,r;for(i=0;i<nmods;i++){struct dl_phdr_info x;memset(&x,0,sizeof x);x.dlpi_addr=mods[i].bias;x.dlpi_name=mods[i].name;x.dlpi_phdr=mods[i].ph;x.dlpi_phnum=mods[i].nph;r=cb(&x,sizeof x,d);if(r)return r;}return dl_iterate_phdr(cb,d);}static void*b_dl_unwind_find_exidx(uintptr_t pc,int*n){Mod*m=mod_of(pc);if(!m){if(n)*n=0;return NULL;}if(n)*n=(int)(m->exidx_sz/8);return(void*)(m->bias+m->exidx);}static void*b_dladdr(void*a,void*i){Dl_info*d=i;memset(d,0,sizeof*d);return(void*)(uintptr_t)dladdr(a,d);}
           static Mod*handle_to_mod(void*h){int i;for(i=0;i<nmods;i++)if(h==(void*)&mods[i])return &mods[i];return NULL;}
           /* Handle "utama" untuk dlopen(NULL) -> libmain.so yang sudah dimuat. */
-          static void*g_main_h;
+          static void*g_main_h;static char g_libc_sentinel;static int g_dlsym_log;
           static void*b_dlopen(const char*p,int f){
            const char*b;Mod*m;
-           if(!p||!*p){if(g_main_h)return g_main_h;L("[shim] dlopen(NULL/\"\") -> handle utama\n");return g_main_h=(void*)&mods[0];}
+           if(!p){if(g_main_h)return g_main_h;L("[shim] dlopen(NULL) -> handle utama\n");return g_main_h=(void*)&mods[0];}
+           if(!*p){L("[shim] dlopen(\"\") -> NULL\n");return NULL;}
+           if(!strcmp(p,"libc.so")||!strcmp(p,"libm.so")||!strcmp(p,"libdl.so")||!strcmp(p,"libc.so.6")){L("[shim] dlopen(\"%s\") -> handle libc-shim (dlsym lewat tabel shim)\n",p);return(void*)&g_libc_sentinel;}
            b=strrchr(p,'/');
            if(!strncmp(p,"libGLES",7)&&h_gles)return h_gles;
            if(!strncmp(p,"libEGL",6)&&h_egl)return h_egl;
            m=mod_find_name(b?b+1:p);
            if(m){L("[shim] dlopen(\"%s\") -> modul game yang sudah dimuat (%s)\n",p,m->name);return(void*)m;}
-           L("[shim] dlopen(\"%s\") -> host\n",p);
-           return dlopen(p,f?f:RTLD_LAZY);}
+           {void*hr=dlopen(p,f?f:RTLD_LAZY);L("[shim] dlopen(\"%s\") -> host %s\n",p,hr?"OK":"GAGAL(NULL)");return hr;}}
           static void*b_dlsym(void*h,const char*n){Mod*m;void*p;
+           if(h==(void*)&g_libc_sentinel){int i;for(i=0;shim[i].n;i++)if(!strcmp(shim[i].n,n)){if(g_dlsym_log++<150)L("[shim] dlsym(libc,\"%s\") -> shim\n",n);return shim[i].p;}p=dlsym(RTLD_DEFAULT,n);if(g_dlsym_log++<150)L("[shim] dlsym(libc,\"%s\") -> %s\n",n,p?"glibc asli":"NULL");return p;}
            if(!h||h==RTLD_DEFAULT||h==(void*)-1||h==(void*)-2||h==g_main_h){
             /* pencarian global: modul game dulu, baru shim, baru host */
             int i;for(i=0;i<nmods;i++)if((p=mod_find(&mods[i],n)))return p;
@@ -1284,14 +1422,14 @@ jobs:
             {int i;for(i=0;i<nmods;i++)if(&mods[i]!=m&&(r=mod_find(&mods[i],n))){L("[shim] dlsym(%s, \"%s\") -> dari modul lain (%s)\n",m->name,n,mods[i].name);return r;}}
             return NULL;}
            return dlsym(h,n);}
-          static int b_dlclose(void*h){return handle_to_mod(h)?0:dlclose(h);}static char*b_dlerror(void){return dlerror();}
+          static int b_dlclose(void*h){if(h==(void*)&g_libc_sentinel)return 0;return handle_to_mod(h)?0:dlclose(h);}static char*b_dlerror(void){return dlerror();}
           static uint32_t resolve(Mod*self,const Elf32_Sym*s){const char*n=self->str+s->st_name;int i;void*p;if(s->st_shndx!=SHN_UNDEF){cnt_self++;return U32(self->bias+s->st_value);}for(i=0;i<nmods;i++)if(&mods[i]!=self&&(p=mod_find(&mods[i],n))){cnt_mod++;return U32(p);}for(i=0;shim[i].n;i++)if(!strcmp(shim[i].n,n)){cnt_shim++;if(nshim_hit<512)shim_hit[nshim_hit++]=shim[i].n;return U32(shim[i].p);}if((p=dlsym(RTLD_DEFAULT,n))){cnt_libc++;return U32(p);}if(h_z&&(p=dlsym(h_z,n))){cnt_libc++;return U32(p);}if(h_egl&&(p=dlsym(h_egl,n))){cnt_gl++;return U32(p);}if(h_gles&&(p=dlsym(h_gles,n))){cnt_gl++;return U32(p);}if(ELF32_ST_BIND(s->st_info)==STB_WEAK){cnt_weak0++;return 0;}for(i=0;i<nunres;i++)if(!strcmp(unres_name[i],n))return U32(tstubs[i]);cnt_unres++;if(nunres<MAXUNRES){unres_name[nunres]=n;return U32(tstubs[nunres++]);}return U32(tstubs[MAXUNRES-1]);}
           static int relocate(Mod*m){int pass,bad=0;for(pass=0;pass<2;pass++){Elf32_Rel*r=pass?m->jrel:m->rel;uint32_t n=pass?m->njrel:m->nrel,k;for(k=0;k<n;k++){uint32_t t=ELF32_R_TYPE(r[k].r_info),s=ELF32_R_SYM(r[k].r_info);uint32_t*w=(void*)(m->bias+r[k].r_offset);if(t==R_ARM_NONE)continue;if(t==R_ARM_RELATIVE)*w+=U32(m->bias);else if(t==R_ARM_ABS32){if(s)*w+=resolve(m,&m->sym[s]);}else if(t==R_ARM_GLOB_DAT||t==R_ARM_JUMP_SLOT)*w=resolve(m,&m->sym[s]);else{L("reloc unsupported %u\n",t);bad++;}}}return bad;}
           static void protect(Mod*m){const Elf32_Ehdr*e=(void*)m->file;const Elf32_Phdr*p=(void*)(m->file+e->e_phoff);size_t n=m->span/PAGE,i;unsigned char*f=calloc(n,1);int k;if(!f)return;__builtin___clear_cache((char*)m->base,(char*)m->base+m->span);for(k=0;k<e->e_phnum;k++)if(p[k].p_type==PT_LOAD){uintptr_t a=(m->bias+p[k].p_vaddr)&~(uintptr_t)(PAGE-1),z=(m->bias+p[k].p_vaddr+p[k].p_memsz+PAGE-1)&~(uintptr_t)(PAGE-1);int pr=((p[k].p_flags&PF_R)?PROT_READ:0)|((p[k].p_flags&PF_W)?PROT_WRITE:0)|((p[k].p_flags&PF_X)?PROT_EXEC:0);for(;a<z;a+=PAGE)f[(a-(uintptr_t)m->base)/PAGE]|=(unsigned char)pr;}for(i=0;i<n;){size_t j=i+1;while(j<n&&f[j]==f[i])j++;if(f[i])mprotect(m->base+i*PAGE,(j-i)*PAGE,f[i]);i=j;}free(f);}
           static void run_init(Mod*m){uint32_t i;if(m->init)((void(*)(void))(m->bias+m->init))();for(i=0;i<m->niarr;i++)if(m->iarr[i]&&m->iarr[i]!=0xffffffffu)((void(*)(void))(uintptr_t)m->iarr[i])();}
 
-          static int j_Register(void*e,void*c,const NativeMethod*m,int n){int i;(void)e;for(i=0;i<n&&g_nnat<1400;i++){Native*x=&g_natives[g_nnat++];snprintf(x->cls,sizeof x->cls,"%s",h2s(c));snprintf(x->name,sizeof x->name,"%s",m[i].name);snprintf(x->sig,sizeof x->sig,"%s",m[i].sig);x->fn=m[i].fn;x->mod=mod_of((uintptr_t)m[i].fn);}L("[JNI] RegisterNatives(%s, %d)\n",h2s(c),n);return 0;}
-          static void init_jni_table(void){int i;for(i=0;i<256;i++)g_jni_table[i]=jstubs[i];g_jni_table[4]=j_GetVersion;g_jni_table[6]=j_FindClass;g_jni_table[27]=j_AllocObject;g_jni_table[28]=j_NewObject;g_jni_table[29]=j_NewObjectV;g_jni_table[30]=j_NewObjectA;g_jni_table[31]=j_GetObjectClass;g_jni_table[33]=j_GetMethodID;SETFAM(34,Object);SETFAM(37,Boolean);SETFAM(49,Int);SETFAM(52,Long);SETFAM(55,Float);SETFAM(58,Double);SETFAM(61,Void);g_jni_table[94]=j_GetFieldID;g_jni_table[113]=j_GetStaticMethodID;g_jni_table[144]=j_GetFieldID;g_jni_table[167]=j_NewStringUTF;g_jni_table[168]=j_GetStringUTFLength;g_jni_table[169]=j_GetStringUTFChars;g_jni_table[170]=j_ReleaseStringUTFChars;g_jni_table[215]=j_Register;g_jni_table[219]=j_GetJavaVM;g_jni_table[228]=j_ExceptionCheck;g_jni_table[18]=j_FatalError;
+          static int j_Register(void*e,void*c,const NativeMethod*m,int n){int i;(void)e;for(i=0;i<n&&g_nnat<1400;i++){Native*x=&g_natives[g_nnat++];snprintf(x->cls,sizeof x->cls,"%s",h2s(c));snprintf(x->name,sizeof x->name,"%s",m[i].name);snprintf(x->sig,sizeof x->sig,"%s",m[i].sig);x->fn=m[i].fn;x->mod=mod_of((uintptr_t)m[i].fn);if(strstr(x->cls,"ReflectionHelper")||strstr(x->cls,"Proxy")||!strncmp(x->cls,"obj:",4))L("[nat] %s.%s %s fn=%s+0x%lx\n",x->cls,x->name,x->sig,x->mod?x->mod->name:"?",x->mod?(unsigned long)((uintptr_t)x->fn-x->mod->bias):0UL);}L("[JNI] RegisterNatives(%s, %d)\n",h2s(c),n);return 0;}
+          static void init_jni_table(void){int i;for(i=0;i<256;i++)g_jni_table[i]=jstubs[i];g_jni_table[4]=j_GetVersion;g_jni_table[7]=j_FromReflectedMethod;g_jni_table[9]=j_ToReflectedMethod;g_jni_table[12]=j_ToReflectedField;g_jni_table[6]=j_FindClass;g_jni_table[27]=j_AllocObject;g_jni_table[28]=j_NewObject;g_jni_table[29]=j_NewObjectV;g_jni_table[30]=j_NewObjectA;g_jni_table[31]=j_GetObjectClass;g_jni_table[33]=j_GetMethodID;SETFAM(34,Object);SETFAM(37,Boolean);SETFAM(49,Int);SETFAM(52,Long);SETFAM(55,Float);SETFAM(58,Double);SETFAM(61,Void);g_jni_table[94]=j_GetFieldID;g_jni_table[113]=j_GetStaticMethodID;g_jni_table[144]=j_GetFieldID;g_jni_table[167]=j_NewStringUTF;g_jni_table[168]=j_GetStringUTFLength;g_jni_table[169]=j_GetStringUTFChars;g_jni_table[170]=j_ReleaseStringUTFChars;g_jni_table[215]=j_Register;g_jni_table[219]=j_GetJavaVM;g_jni_table[228]=j_ExceptionCheck;g_jni_table[18]=j_FatalError;
           /* JNI refs & exception, index JNI asli. Stub bawaan return NULL -> objek Java jadi NULL -> crash native. */
           g_jni_table[13]=j_zero1;g_jni_table[15]=j_exc;g_jni_table[16]=j_noop2;g_jni_table[17]=j_noop2;g_jni_table[19]=j_pushframe;g_jni_table[20]=j_popframe;g_jni_table[21]=j_same;g_jni_table[22]=j_noop2;g_jni_table[23]=j_noop2;g_jni_table[24]=j_same_q;g_jni_table[25]=j_same;g_jni_table[26]=j_zero1;
           /* string UTF-16 + field + array */
@@ -1303,7 +1441,8 @@ jobs:
           g_jni_table[171]=j_GetArrayLength;g_jni_table[172]=j_NewObjectArray;g_jni_table[173]=j_GetObjectArrayElement;g_jni_table[174]=j_SetObjectArrayElement;
           /* primitive arrays (byte[] untuk InputStream.read, int[]/float[] untuk Unity) */
           g_jni_table[175]=j_NewBooleanArray;g_jni_table[176]=j_NewByteArray;g_jni_table[177]=j_NewCharArray;g_jni_table[178]=j_NewShortArray;g_jni_table[179]=j_NewIntArray;g_jni_table[180]=j_NewLongArray;g_jni_table[181]=j_NewFloatArray;g_jni_table[182]=j_NewDoubleArray;
-          g_jni_table[183]=j_GetByteArrayElements;g_jni_table[191]=j_ReleaseByteArrayElements;g_jni_table[199]=j_GetByteArrayRegion;g_jni_table[200]=j_SetByteArrayRegion;
+          {int q;for(q=183;q<=190;q++)g_jni_table[q]=j_GetArrElems;for(q=191;q<=198;q++)g_jni_table[q]=j_RelArrElems;for(q=199;q<=206;q++)g_jni_table[q]=j_GetArrRegion;for(q=207;q<=214;q++)g_jni_table[q]=j_SetArrRegion;}
+          g_jni_table[222]=j_GetPrimCritical;g_jni_table[223]=j_RelPrimCritical;
           g_vm_table[3]=vm_Destroy;g_vm_table[4]=vm_Attach;g_vm_table[6]=vm_GetEnv;g_vm_table[7]=vm_Attach;}
 
           static int gfx_ready;
@@ -1319,28 +1458,149 @@ jobs:
 
           /* ======================= Unity thread + render loop ======================= */
           typedef void(*nfn)(void*,void*,...);
-          static void*unity_thread(void*arg){Native*ni,*nr,*nc,*nf,*nrender;void*env=&g_envobj;void*self=mk_obj("com/unity3d/player/UnityPlayer");void*ctx=mk_obj("android/app/Activity");void*surf=mk_obj("android/view/Surface");unsigned long frames=0;struct timespec a,b;(void)arg;g_unity_self=self;pthread_setname_np(pthread_self(),"UnityMain");
+          typedef struct{void*h;int64_t ptr;uint32_t w0;}UProxy;static UProxy g_uprox[512];static int g_nuprox;
+          typedef struct{int64_t ptr;int64_t due;int used;int pre;uint32_t w0;}UJob;static UJob g_ujobs[256];
+          static pthread_mutex_t g_ujm=PTHREAD_MUTEX_INITIALIZER;static int g_ui_run=0,g_ui_started,g_ui_runs;
+          static int64_t ui_now(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (int64_t)t.tv_sec*1000+t.tv_nsec/1000000;}
+          static void mem_peek(const char*nm,uintptr_t a){int fd=open("/dev/null",O_WRONLY),k;char ln[200];int p;if(fd<0)return;if(a<0x10000u||!rd_probe(a,4)){L("  mem[%s=%08lx]: tidak terbaca\n",nm,(unsigned long)a);close(fd);return;}p=snprintf(ln,sizeof ln,"  mem[%s=%08lx]:",nm,(unsigned long)a);for(k=0;k<8;k++){uintptr_t q=a+(uintptr_t)k*4;if(!rd_probe(q,4))break;p+=snprintf(ln+p,sizeof ln-(size_t)p," %08x",*(uint32_t*)q);}L("%s\n",ln);close(fd);}
+          static void code_dump(const char*lab,uintptr_t a,int len){int fd=open("/dev/null",O_WRONLY),k;Mod*m;unsigned long off;if(fd<0)return;a&=~(uintptr_t)1;if(!rd_range(a,(size_t)len)){L("[code] %s addr=%08lx TIDAK TERBACA\n",lab,(unsigned long)a);close(fd);return;}close(fd);m=mod_of(a);off=m?(unsigned long)(a-m->bias):0;L("[code] %s mod=%s off=0x%lx len=%d\n",lab,m?m->name:"?",off,len);for(k=0;k<len;k+=32){int j,n=(len-k<32)?len-k:32;char ln[200];int p=snprintf(ln,sizeof ln,"[c] %s %lx:",lab,off+(unsigned long)k);for(j=0;j<n&&p<190;j++)p+=snprintf(ln+p,sizeof ln-(size_t)p," %02x",((uint8_t*)a)[k+j]);L("%s\n",ln);}}
+          static Mod*g_il;static int g_ui_attached,g_ui_main,g_ui_drop,g_ui_dropped,g_ui_ptrmode;
+          static void ui_il2cpp_attach(void){
+           void*(*dg)(void)=(void*(*)(void))(g_il?mod_find(g_il,"il2cpp_domain_get"):NULL);
+           void*(*ta)(void*)=(void*(*)(void*))(g_il?mod_find(g_il,"il2cpp_thread_attach"):NULL);
+           void*dom,*th;
+           if(!dg||!ta){L("[ui] il2cpp_domain_get/il2cpp_thread_attach TIDAK diekspor (dg=%p ta=%p)\n",(void*)dg,(void*)ta);return;}
+           dom=dg();th=ta(dom);
+           L("[ui] il2cpp_thread_attach tid=%d domain=%p -> thread=%p\n",(int)syscall(SYS_gettid),dom,th);
+          }
+          static int g_ui_stale,g_ui_old,g_ui_skipped;
+          static int safe_rd(uintptr_t a,void*out,size_t n){static volatile int mode=0,busy=0;static int pp[2]={-1,-1};char tmp[64];ssize_t r;if(a<0x10000u||n==0||n>sizeof tmp)return 0;
+           /* fix25: baca memori SECARA NYATA aman (EFAULT bila tak termap). write(/dev/null) TIDAK memeriksa halaman -> SIGSEGV di thread heartbeat. */
+           if(mode!=2){struct iovec lo,re;lo.iov_base=out;lo.iov_len=n;re.iov_base=(void*)a;re.iov_len=n;r=process_vm_readv(getpid(),&lo,1,&re,1,0);if(r==(ssize_t)n){mode=1;return 1;}if(r>=0||errno==EFAULT)return 0;mode=2;}
+           if(__sync_lock_test_and_set(&busy,1))return 0;
+           if(pp[0]<0&&pipe2(pp,O_NONBLOCK)<0){pp[0]=pp[1]=-1;__sync_lock_release(&busy);return 0;}
+           r=write(pp[1],(void*)a,n);if(r==(ssize_t)n)r=(read(pp[0],out,n)==(ssize_t)n)?(ssize_t)n:-1;else while(read(pp[0],tmp,sizeof tmp)>0){}
+           __sync_lock_release(&busy);return r==(ssize_t)n;}
+          static int rd_probe(uintptr_t a,size_t n){char t[64];if(n>sizeof t)n=sizeof t;return safe_rd(a,t,n);}
+          static int rd_range(uintptr_t a,size_t n){size_t o;for(o=0;o<n;o+=64){size_t c=(n-o<64)?n-o:64;if(!rd_probe(a+o,c))return 0;}return 1;}
+          static int cstr_ok(uint32_t p,char*out,size_t cap){size_t i;char b[32];if(p<0x10000u||!safe_rd(p,b,24))return 0;for(i=0;i<24;i++){if(b[i]==0)break;if((unsigned char)b[i]<0x20||(unsigned char)b[i]>0x7e)return 0;}if(i==0)return 0;snprintf(out,cap,"%.*s",(int)i,b);return 1;}
+          static int obj_desc(uint32_t o,char*out,size_t cap){uint32_t k=0,np=0,ns=0;char a[32]={0},b[32]={0};if(o<0x10000u||(o&3))return 0;if(!safe_rd(o,&k,4)||k<0x10000u||(k&3))return 0;if(!safe_rd(k+8,&np,4)||!safe_rd(k+12,&ns,4))return 0;if(!cstr_ok(np,a,sizeof a))return 0;if(ns&&!cstr_ok(ns,b,sizeof b))b[0]=0;snprintf(out,cap,"%s::%s",b,a);return 1;}
+          static int ui_run_one(void){int i,best=-1;int64_t t=ui_now(),ptr=0;uint32_t w0=0;Native*n;void*env=&g_envobj;
+           Native*inv=NULL;if(g_m2_frames==0)return 0;inv=g_ui_old?NULL:find_native_sig("invoke","(JLjava/lang/Class;Ljava/lang/reflect/Method;");if(!(n=inv?inv:find_native("ReflectionHelper","nativeProxyInvoke")))return 0;
+           pthread_mutex_lock(&g_ujm);
+           if(!g_script_ready&&g_m2_frames>=600){g_script_ready=1;L("[ui] frame 600 tanpa log skrip -> lepas job tertahan\n");}
+           for(i=0;i<256;i++)if(g_ujobs[i].used&&g_ujobs[i].due<=t&&(!g_ujobs[i].pre||g_script_ready)&&(best<0||g_ujobs[i].due<g_ujobs[best].due))best=i;
+           if(best>=0){ptr=g_ujobs[best].ptr;w0=g_ujobs[best].w0;g_ujobs[best].used=0;}
+           pthread_mutex_unlock(&g_ujm);
+           if(best<0)return 0;
+           /* fix22: diag18 membuktikan isi ptr berubah antara proxy dibuat dan dijalankan (objek C++ dibebaskan/dipakai ulang).
+              Jalankan Runnable hanya kalau kata pertama (vtable) masih sama dengan saat dibuat; kalau beda -> basi, buang. */
+           if(ptr>0x10000&&w0&&*(volatile uint32_t*)(uintptr_t)ptr!=w0){
+            if(g_ui_stale++<30)L("[ui] vtable ptr berubah sejak dibuat ptr=0x%llx dibuat=%08x sekarang=%08x frame=%lu -> TETAP dijalankan (fix23)\n",(unsigned long long)ptr,(unsigned)w0,(unsigned)*(volatile uint32_t*)(uintptr_t)ptr,(unsigned long)g_m2_frames);
+            }
+           if(g_ui_ptrmode==1)ptr|=1;
+           if(!g_ui_main&&!g_ui_attached){g_ui_attached=1;ui_il2cpp_attach();}
+           if(g_ui_runs<6)L("[ui] jalankan Runnable proxy ptr=0x%llx sig=%s thread=%s tid=%d\n",(unsigned long long)ptr,n->sig,g_ui_main?"UnityMain(render)":"FakeUI",(int)syscall(SYS_gettid));
+           if(g_ui_runs<3){mem_peek("ptr",(uintptr_t)ptr);mem_peek("ptr+0x20",(uintptr_t)ptr+0x20);mem_peek("ptr+0x40",(uintptr_t)ptr+0x40);code_dump("proxyinvoke-entry",(uintptr_t)n->fn,0xc0);}
+           g_ui_runs++;
+           /* fix24: nativeProxyInvoke(delegate): delegate genap diperlakukan libunity sebagai ALAMAT SEL yang berisi objek managed (target=*delegate);
+              delegate ganjil = GC handle. ptr kita menunjuk objek C++ (kata pertama = vtable) -> *ptr = vtable -> SIGBUS di IL2CPP.
+              Cari sel yang isinya objek managed valid (kelas bernama masuk akal) di ptr..ptr+0x1c; kalau tidak ada, coba GC handle di ptr+0xc. */
+           if(inv){if(g_ui_runs<3)code_dump("jni-invoke-entry",(uintptr_t)inv->fn,0x100);
+             /* fix26: proxy dari newInterfaceProxy = objek C++ (ptr->vtable). Java memanggil native invoke(long ptr,Class,Method,Object[]) yang terdaftar di initJni (libunity+0xb60515),
+                BUKAN ReflectionHelper.nativeProxyInvoke (itu untuk proxy C# dengan GC handle). */
+             if(g_ui_runs<12)L("[ui] panggil JNI invoke(ptr=0x%llx, iface, method=run, args=[]) fn=libunity+0x%lx\n",(unsigned long long)ptr,(unsigned long)((uintptr_t)inv->fn-(inv->mod?inv->mod->bias:0)));
+             g_inv_tid=(int)syscall(SYS_gettid);g_in_inv=1;((nfn)inv->fn)(env,mk_obj("java/lang/Class"),ptr,mk_obj("java/lang/Class"),mk_handle("run"),arr_new('L',0));g_in_inv=0;}
+           else{int64_t d=ptr;int ci,pick=-1;char dsc[80];uint32_t cand[8]={0};
+            if(!g_ui_old){
+             for(ci=0;ci<8;ci++){if(safe_rd((uintptr_t)ptr+(uintptr_t)ci*4u,&cand[ci],4)&&obj_desc(cand[ci],dsc,sizeof dsc)){if(g_ui_runs<12)L("[ui] kandidat ptr+0x%x -> objek %08x kelas=%s\n",ci*4,(unsigned)cand[ci],dsc);if(pick<0)pick=ci;}}
+             if(pick>=0)d=ptr+(int64_t)pick*4;
+             else{if(g_ui_skipped++<20)L("[ui] tak ada kandidat valid utk ptr=0x%llx -> job dilewati (frame=%lu)\n",(unsigned long long)ptr,(unsigned long)g_m2_frames);return 1;}
+             if(g_ui_runs<12)L("[ui] delegate dipakai=0x%llx (pick=%d)\n",(unsigned long long)d,pick);}
+            ((nfn)n->fn)(env,mk_obj("java/lang/Class"),d,mk_handle("run"),arr_new('L',0));}
+           if(g_ui_runs<=6)L("[ui] Runnable #%d selesai tanpa crash\n",g_ui_runs);
+           return 1;}
+          static void*ui_thread(void*arg){(void)arg;pthread_setname_np(pthread_self(),"FakeUI");
+           for(;;){if(!ui_run_one())usleep(2000);}
+           return NULL;}
+
+          static void ui_reg_proxy(void*h,int64_t ptr){pthread_mutex_lock(&g_ujm);g_uprox[g_nuprox%512].h=h;g_uprox[g_nuprox%512].ptr=ptr;g_uprox[g_nuprox%512].w0=(ptr>0x10000)?*(volatile uint32_t*)(uintptr_t)ptr:0;g_nuprox++;pthread_mutex_unlock(&g_ujm);}
+          static void ui_post(void*h,int64_t dly){int i,n,k;int64_t ptr=0;uint32_t w0=0;int found=0;if(!g_ui_run)return;
+           pthread_mutex_lock(&g_ujm);
+           n=g_nuprox<512?g_nuprox:512;for(i=0;i<n;i++)if(g_uprox[i].h==h){ptr=g_uprox[i].ptr;w0=g_uprox[i].w0;found=1;break;}
+           if(found&&g_m2_frames==0&&g_ui_drop){found=0;g_ui_dropped++;L("[ui] job dini DIBUANG (--uidrop) ptr=0x%llx\n",(unsigned long long)ptr);}
+            if(found){for(k=0;k<256;k++)if(!g_ujobs[k].used){g_ujobs[k].pre=(g_m2_frames==0);if(g_ujobs[k].pre)L("[ui] job dini ditahan ptr=0x%llx\n",(unsigned long long)ptr);g_ujobs[k].ptr=ptr;g_ujobs[k].w0=w0;g_ujobs[k].due=ui_now()+(dly>0?dly:0);g_ujobs[k].used=1;break;}
+            if(!g_ui_started&&!g_ui_main){pthread_t t;pthread_attr_t at;pthread_attr_init(&at);pthread_attr_setstacksize(&at,2u<<20);if(pthread_create(&t,&at,ui_thread,NULL)==0){pthread_detach(t);g_ui_started=1;}pthread_attr_destroy(&at);}}
+           pthread_mutex_unlock(&g_ujm);}
+          static void*unity_thread(void*arg){Native*ni,*nr,*nc,*nf,*nrender;void*env=&g_envobj;void*self=mk_obj("com/unity3d/player/UnityPlayer");void*ctx=mk_obj("android/app/Activity");void*surf=mk_obj("android/view/Surface");unsigned long frames=0;struct timespec a,b;(void)arg;g_unity_self=self;g_unity_tid=(int)syscall(SYS_gettid);pthread_setname_np(pthread_self(),"UnityMain");
            {stack_t ss;ss.ss_sp=malloc(1u<<17);ss.ss_size=1u<<17;ss.ss_flags=0;if(ss.ss_sp)sigaltstack(&ss,NULL);}
            ni=find_native("UnityPlayer","initJni");nr=find_native("UnityPlayerForActivityOrService","nativeRecreateGfxState");nc=find_native("UnityPlayerForActivityOrService","nativeSendSurfaceChangedEvent");nf=find_native("UnityPlayerForActivityOrService","nativeResume");nrender=find_native("UnityPlayerForActivityOrService","nativeRender");if(!ni||!nr||!nf||!nrender){L("[m2] Unity native entrypoints missing init=%p recreate=%p resume=%p render=%p\n",ni,nr,nf,nrender);g_m2_done=1;return NULL;}
-           L("[m2] UnityPlayer.initJni(context, 0)\n");((nfn)ni->fn)(env,self,ctx,0);L("[m2] nativeRecreateGfxState(0,surface)\n");((nfn)nr->fn)(env,self,0,surf);if(nc)((nfn)nc->fn)(env,self);L("[m2] nativeResume()\n");((nfn)nf->fn)(env,self);{Native*focus=find_native("UnityPlayerForActivityOrService","nativeFocusChanged");if(focus)((nfn)focus->fn)(env,self,1);}g_m2_ready=1;clock_gettime(CLOCK_MONOTONIC,&a);while(!g_m2_done&&frames<(unsigned long)g_frames_target){int r=((uint8_t(*)(void*,void*))nrender->fn)(env,self)&0xff;frames++;g_m2_frames=frames;if(frames==1){alarm(0);L("[watchdog] nativeRender mulai -> timer dibatalkan\n");}if(frames<4||frames%120==0)L("[m2] nativeRender %lu -> %d swap=%lu\n",frames,r,g_gfx.swaps);if(!r){L("[m2] nativeRender false\n");break;}poll_events(1.f/(float)g_fps);if(g_fps==30)usleep(10000);}clock_gettime(CLOCK_MONOTONIC,&b);L("[m2] render ended frames=%lu swaps=%lu elapsed=%ld.%03ld\n",frames,g_gfx.swaps,(long)(b.tv_sec-a.tv_sec),(long)((b.tv_nsec-a.tv_nsec)/1000000));g_m2_done=1;return NULL;}
+           L("[m2] UnityPlayer.initJni(context, 0)\n");((nfn)ni->fn)(env,self,ctx,0);L("[m2] nativeRecreateGfxState(0,surface)\n");((nfn)nr->fn)(env,self,0,surf);if(nc)((nfn)nc->fn)(env,self);egl_yield_me();L("[m2] nativeResume()\n");((nfn)nf->fn)(env,self);egl_yield_me();{Native*focus=find_native("UnityPlayerForActivityOrService","nativeFocusChanged");if(focus)((nfn)focus->fn)(env,self,1);}g_m2_ready=1;clock_gettime(CLOCK_MONOTONIC,&a);while(!g_m2_done&&frames<(unsigned long)g_frames_target){int r=((uint8_t(*)(void*,void*))nrender->fn)(env,self)&0xff;egl_yield_me();frames++;g_m2_frames=frames;if(g_ui_main){int q;for(q=0;q<4&&ui_run_one();q++);}if(frames==1){alarm(0);L("[watchdog] nativeRender mulai -> timer dibatalkan\n");}if(frames<4||frames%120==0)L("[m2] nativeRender %lu -> %d swap=%lu\n",frames,r,g_gfx.swaps);if(!r){L("[m2] nativeRender false\n");break;}poll_events(1.f/(float)g_fps);if(g_fps==30)usleep(10000);}clock_gettime(CLOCK_MONOTONIC,&b);L("[m2] render ended frames=%lu swaps=%lu elapsed=%ld.%03ld\n",frames,g_gfx.swaps,(long)(b.tv_sec-a.tv_sec),(long)((b.tv_nsec-a.tv_nsec)/1000000));g_m2_done=1;return NULL;}
           static void m2_run(void){pthread_t t;pthread_attr_t at;if(gfx_setup()!=0){L("[m2] gfx_setup gagal; berhenti sebelum game start\n");return;}
            /* IL2CPP init butuh stack dalam; default pthread bisa kurang -> SEGV_ACCERR stack overflow. */
            pthread_attr_init(&at);pthread_attr_setstacksize(&at,8u<<20);
            if(pthread_create(&t,&at,unity_thread,NULL)){L("[m2] pthread_create UnityMain gagal\n");pthread_attr_destroy(&at);return;}pthread_attr_destroy(&at);in_open_joysticks();
            /* Detak: kalau nativeRender/eglSwapBuffers tidak maju berarti Unity macet (mis. menunggu callback Choreographer).
               Setelah --stall detik tanpa progres -> berhenti sendiri supaya tidak hang selamanya. */
-           {int waited=0,stall_s=0;unsigned long last_fr=g_m2_frames,last_sw=g_gfx.swaps;const int stall_max=(g_timeout>0?g_timeout:180)/2;int warmup=0;
+           {int waited=0,stall_s=0;unsigned long last_fr=g_m2_frames,last_sw=g_gfx.swaps;const int stall_max=25;int warmup=0;
             while(!g_m2_done){poll_events(1.f/(float)g_fps);usleep(10000);waited++;
              if(waited%100==0){
               /* Fase warm-up: Unity masih memuat asset, nativeRender belum jalan -> jangan dianggap macet. */
-              if(g_m2_frames==0){if(++warmup>=12){L("[m2] 120 detik tanpa nativeRender sama sekali -> Unity tidak pernah mulai render\n");g_m2_done=1;break;}L("[m2] memuat... %d dtk (nativeRender belum jalan)\n",waited/100);continue;}
+              if(g_m2_frames==0){if(++warmup>=120){L("[m2] 120 detik tanpa nativeRender sama sekali -> Unity tidak pernah mulai render\n");g_m2_done=1;break;}L("[m2] memuat... %d dtk (nativeRender belum jalan)\n",waited/100);continue;}
               {int no_prog=(g_m2_frames==last_fr&&g_gfx.swaps==last_sw);last_fr=g_m2_frames;last_sw=g_gfx.swaps;
                if(no_prog)stall_s++;else stall_s=0;
                L("[m2] detak %d dtk | nativeRender=%lu | swap=%lu%s\n",waited/100,g_m2_frames,g_gfx.swaps,stall_s>2?" (MACET!)":"");
                if(stall_s>0&&stall_s%3==0)L("[m2] nativeRender tidak maju selama %d detik -> Unity mungkin menunggu callback Choreographer/Looper\n",stall_s);
                if(stall_max>0&&stall_s>=stall_max){L("[m2] STALL %d detik -> berhenti (tidak hang selamanya)\n",stall_s);g_m2_done=1;break;}}}}}
-            pthread_join(t,NULL);}
+            {struct timespec jt;clock_gettime(CLOCK_REALTIME,&jt);jt.tv_sec+=4;if(pthread_timedjoin_np(t,NULL,&jt)!=0){L("[m2] thread UnityMain macet di nativeRender -> keluar paksa (_exit)\n");fflush(NULL);_exit(3);}}}
 
+          static int bt_ok(uintptr_t a,int fd){(void)fd;return rd_probe(a,4);}
+          static uint32_t arm_imm12(uint32_t i){uint32_t v=i&0xFFu,r=((i>>8)&0xFu)*2u;return r?((v>>r)|(v<<(32u-r))):v;}
+          static void reloc_who(uintptr_t a){int i,pass;
+           for(i=0;i<nmods;i++){Mod*m=&mods[i];
+            for(pass=0;pass<2;pass++){Elf32_Rel*r=pass?m->jrel:m->rel;uint32_t n=pass?m->njrel:m->nrel,k;
+             for(k=0;k<n;k++){if((uintptr_t)m->bias+(uintptr_t)r[k].r_offset==a){uint32_t s=ELF32_R_SYM(r[k].r_info);
+              L("      -> memanggil FUNGSI IMPOR: %s  (slot %s+0x%lx)\n",s?m->str+m->sym[s].st_name:"(nol)",m->name,(unsigned long)r[k].r_offset);return;}}}}}
+          /* v = alamat kembali ARM tepat setelah "bl stub_plt": ambil nama fungsi impor yang dipanggil */
+          static void bl_callee(uintptr_t v,int fd){uint32_t w,i0,i1,i2;uintptr_t t,slot;int32_t off;
+           if(v<0x10000u||(v&3u))return;
+           if(!bt_ok(v-4,fd))return;w=*(uint32_t*)(v-4);
+           if((w&0x0F000000u)!=0x0B000000u)return;
+           off=((int32_t)((w&0x00FFFFFFu)<<8))>>6;
+           t=(v-4)+8+(uintptr_t)off;
+           if(!bt_ok(t,fd)||!bt_ok(t+8,fd))return;
+           i0=*(uint32_t*)t;i1=*(uint32_t*)(t+4);i2=*(uint32_t*)(t+8);
+           if((i0&0xFFFFF000u)!=0xE28FC000u||(i1&0xFFFFF000u)!=0xE28CC000u||(i2&0xFF7FF000u)!=0xE53CF000u)return;
+           slot=(t+8)+arm_imm12(i0)+arm_imm12(i1);
+           if(i2&0x00800000u)slot+=(i2&0xFFFu);else slot-=(i2&0xFFFu);
+           reloc_who(slot);}
+          static int bt_is_call(uintptr_t v,int fd){
+           if(v<0x10000u)return 0;
+           if(v&1u){uintptr_t p=v&~(uintptr_t)1;uint16_t a,b;
+            if(!bt_ok(p-4,fd))return 0;
+            a=*(uint16_t*)(p-4);b=*(uint16_t*)(p-2);
+            if((a&0xF800u)==0xF000u&&(b&0xC000u)==0xC000u)return 1;
+            if((b&0xFF87u)==0x4780u)return 1;
+            return 0;}
+           else{uint32_t w;
+            if(v&3u)return 0;
+            if(!bt_ok(v-4,fd))return 0;
+            w=*(uint32_t*)(v-4);
+            if((w&0x0F000000u)==0x0B000000u)return 1;
+            if((w&0xFE000000u)==0xFA000000u)return 1;
+            if((w&0x0FFFFFF0u)==0x012FFF30u)return 1;
+            return 0;}}
+          static void diag_crash(uintptr_t pc,uintptr_t lr,uintptr_t sp){int fd=open("/dev/null",O_WRONLY),k,n=0;Dl_info d;
+           if(fd<0)return;
+           if(dladdr((void*)pc,&d))L("  pc dladdr: %s (%s+0x%lx)\n",d.dli_sname?d.dli_sname:"?",d.dli_fname?d.dli_fname:"?",(unsigned long)(pc-(uintptr_t)d.dli_fbase));
+           {Mod*m=mod_of(lr);if(m)L("  lr = %s+0x%lx\n",m->name,(unsigned long)(lr-m->bias));}
+           L("  [lr] fungsi yang dipanggil game tepat sebelum crash:\n");bl_callee(lr,fd);
+           L("  [bt] jejak panggilan dari stack:\n");
+           for(k=0;k<3000&&n<40;k++){uintptr_t*pw=&((uintptr_t*)sp)[k];uintptr_t v;Mod*m;
+            if(!bt_ok((uintptr_t)pw,fd))break;
+            v=*pw;m=mod_of(v);if(!m)continue;
+            if(bt_is_call(v,fd)){L("   bt sp+%04d: %s+0x%lx\n",k*4,m->name,(unsigned long)(v-m->bias));bl_callee(v,fd);n++;}}
+           close(fd);}
           static void on_sig(int s,siginfo_t*i,void*c){ucontext_t*u=c;uintptr_t pc=0,lr=0,sp=0;int k;
            static volatile int in_sig=0;
            /* Kalau handler kita sendiri crash (stack rusak), jangan ulangi -> exit langsung. */
@@ -1351,11 +1611,32 @@ jobs:
           #elif defined(__x86_64__)
           pc=(uintptr_t)u->uc_mcontext.gregs[REG_RIP];
           #endif
+          {char rb[96];int rn=snprintf(rb,sizeof rb,"\n[port] on_sig masuk sinyal=%d pc=%p\n",s,(void*)pc);if(g_log&&rn>0){if(write(fileno(g_log),rb,(size_t)rn)<0){}}}
           L("\n*** signal %d addr=%p pc=%p lr=%p sp=%p ***\n",s,i?i->si_addr:NULL,(void*)pc,(void*)lr,(void*)sp);
           {Mod*m=mod_of(pc);if(m)L("  in %s+0x%lx\n",m->name,(unsigned long)(pc-m->bias));}
           #if defined(__arm__)
+          diag_crash(pc,lr,sp);
+          #endif
+          #if defined(__arm__)
           L("  r0=%08lx r1=%08lx r2=%08lx r3=%08lx r4=%08lx r5=%08lx\n",(unsigned long)u->uc_mcontext.arm_r0,(unsigned long)u->uc_mcontext.arm_r1,(unsigned long)u->uc_mcontext.arm_r2,(unsigned long)u->uc_mcontext.arm_r3,(unsigned long)u->uc_mcontext.arm_r4,(unsigned long)u->uc_mcontext.arm_r5);
           L("  r6=%08lx r7=%08lx r8=%08lx r9=%08lx r10=%08lx fp=%08lx ip=%08lx\n",(unsigned long)u->uc_mcontext.arm_r6,(unsigned long)u->uc_mcontext.arm_r7,(unsigned long)u->uc_mcontext.arm_r8,(unsigned long)u->uc_mcontext.arm_r9,(unsigned long)u->uc_mcontext.arm_r10,(unsigned long)u->uc_mcontext.arm_fp,(unsigned long)u->uc_mcontext.arm_ip);
+          #endif
+          #if defined(__arm__)
+          mem_peek("r5",(uintptr_t)u->uc_mcontext.arm_r5);mem_peek("r0",(uintptr_t)u->uc_mcontext.arm_r0);mem_peek("r2",(uintptr_t)u->uc_mcontext.arm_r2);mem_peek("r6",(uintptr_t)u->uc_mcontext.arm_r6);
+          #endif
+          #if defined(__arm__)
+          {Mod*mi=g_il,*mu=NULL;Native*nn=find_native("ReflectionHelper","nativeProxyInvoke");uintptr_t ub,ib;
+           mu=nn?nn->mod:NULL;
+           if(!mu||!mi){L("[code] modul libunity/libil2cpp tidak ketemu\n");}else{ub=mu->bias;ib=mi->bias;
+            L("[code] ==== DUMP KODE v2 ====\n");
+            code_dump("il2cpp-wrapper-2387c90",ib+0x2387c90,0x60);code_dump("il2cpp-callee-2378af4",ib+0x2378af4,0x90);
+            code_dump("unity-20d6a0",ub+0x20d6a0,0x90);code_dump("unity-A-3ab25c",ub+0x3ab25c,0x80);
+            code_dump("unity-41fc7c",ub+0x41fc7c,0x50);code_dump("unity-434f6c",ub+0x434f6c,0x50);
+            code_dump("unity-3b4ad0",ub+0x3b4ad0,0x70);code_dump("unity-3b0ed0",ub+0x3b0ed0,0x70);
+            code_dump("unity-3b0e44",ub+0x3b0e44,0x70);code_dump("unity-3b4cc0",ub+0x3b4cc0,0x120);
+            code_dump("unity-20d164",ub+0x20d164,0x28);
+            code_dump("unity-3a65c7",ub+0x3a6560,0xc0);code_dump("il2cpp-99d6dc",ib+0x99d640,0x100);code_dump("il2cpp-99d7f8",ib+0x99d7a0,0xc0);code_dump("il2cpp-891690",ib+0x891620,0xa0);
+            L("[code] ==== selesai ====\n");}}
           #endif
           L("  [panggilan JNI terakhir]\n");for(k=0;k<8;k++){unsigned q=(g_jr_i+8+(unsigned)k)&15u;if(g_jr_n[q])L("   %s arg=%p\n",g_jr_n[q],g_jr_p[q]);}
           /* Simbol: cari nama fungsi terdekat di symtab modul game utk pc/lr -> jauh lebih berguna dr "libunity+0x41705f" */
@@ -1364,10 +1645,119 @@ jobs:
            /* stack scan: nilai return-address di stack -> modul+ofs, bantu tunjuk frame pemicu abort */
            if(sp>0x10000&&sp<0xffff0000u){int pr=0;L("  stack scan:\n");for(k=0;k<400&&pr<30;k++){uintptr_t v=((uintptr_t*)sp)[k];Mod*m=mod_of(v);if(m){L("   sp+%03d: %08lx %s+0x%lx\n",k*4,(unsigned long)v,m->name,(unsigned long)(v-(uintptr_t)m->base));pr++;}}}
            fflush(NULL);_exit(128+s);}
-          static void*sigwatch(void*arg){static const int sigs[]={SIGILL,SIGTRAP,SIGABRT,SIGBUS,SIGFPE,SIGSEGV};struct sigaction cur,sa;int k;(void)arg;{stack_t ss;ss.ss_sp=malloc(1u<<16);ss.ss_size=1u<<16;ss.ss_flags=0;if(ss.ss_sp)sigaltstack(&ss,NULL);}for(;;){for(k=0;k<(int)(sizeof sigs/sizeof sigs[0]);k++){memset(&cur,0,sizeof cur);if(sigaction(sigs[k],NULL,&cur)==0&&(cur.sa_sigaction!=on_sig||!(cur.sa_flags&SA_SIGINFO))){L("[sigwatch] handler signal %d changed -> reinstall port handler\n",sigs[k]);memset(&sa,0,sizeof sa);sa.sa_sigaction=on_sig;sa.sa_flags=SA_SIGINFO|SA_ONSTACK;sigemptyset(&sa.sa_mask);sigaction(sigs[k],&sa,NULL);}}usleep(20000);}return NULL;}
+          /* diag8: dump pc/lr + jejak stack thread UnityMain/Loading saat nativeRender belum jalan (sinyal RT dikirim hb_thread). */
+          static void on_dump(int s,siginfo_t*i,void*c){ucontext_t*u=c;char nm[20]="?";(void)s;(void)i;
+           prctl(PR_GET_NAME,(unsigned long)nm,0,0,0);
+           if(strncmp(nm,"UnityMain",9)&&strncmp(nm,"Loading",7))return;
+          #if defined(__arm__)
+           L("[dump] tid=%d %s pc=%p lr=%p\n",(int)syscall(SYS_gettid),nm,(void*)u->uc_mcontext.arm_pc,(void*)u->uc_mcontext.arm_lr);
+           {Mod*m=mod_of(u->uc_mcontext.arm_pc);if(m)L("  pc = %s+0x%lx\n",m->name,(unsigned long)(u->uc_mcontext.arm_pc-m->bias));m=mod_of(u->uc_mcontext.arm_lr);if(m)L("  lr = %s+0x%lx\n",m->name,(unsigned long)(u->uc_mcontext.arm_lr-m->bias));}
+           diag_crash(u->uc_mcontext.arm_pc,u->uc_mcontext.arm_lr,u->uc_mcontext.arm_sp);
+          #else
+           (void)u;
+          #endif
+          }
+          static void dump_threads(void){int fd=open("/proc/self/task",O_RDONLY|O_DIRECTORY);char buf[2048];long n;pid_t me=(pid_t)syscall(SYS_gettid),pid=getpid();
+           if(fd<0)return;L("[dump] ---- stack thread Unity ----\n");
+           while((n=syscall(SYS_getdents64,fd,buf,sizeof buf))>0){long off=0;
+            while(off<n){struct dirent64*e=(struct dirent64*)(buf+off);int tid;off+=e->d_reclen;if(e->d_name[0]=='.')continue;tid=atoi(e->d_name);if(tid==me)continue;syscall(SYS_tgkill,pid,tid,SIGRTMIN+5);usleep(150000);}}
+           close(fd);}
+          static void*sigwatch(void*arg){static const int sigs[]={SIGILL,SIGTRAP,SIGABRT,SIGBUS,SIGFPE,SIGSEGV};struct sigaction cur,sa;int k;(void)arg;{stack_t ss;ss.ss_sp=malloc(1u<<16);ss.ss_size=1u<<16;ss.ss_flags=0;if(ss.ss_sp)sigaltstack(&ss,NULL);}for(;;){for(k=0;k<(int)(sizeof sigs/sizeof sigs[0]);k++){memset(&cur,0,sizeof cur);if(sigaction(sigs[k],NULL,&cur)==0&&(cur.sa_sigaction!=on_sig||!(cur.sa_flags&SA_SIGINFO))){L("[sigwatch] handler signal %d changed -> reinstall port handler\n",sigs[k]);memset(&sa,0,sizeof sa);sa.sa_sigaction=on_sig;sa.sa_flags=SA_SIGINFO|SA_ONSTACK|SA_NODEFER;sigemptyset(&sa.sa_mask);sigaction(sigs[k],&sa,NULL);}}usleep(20000);}return NULL;}
+          static int g_hbfd=-1;
+          static void hb_raw(const char*fmt,...){char b[400];va_list ap;int n;
+           va_start(ap,fmt);n=vsnprintf(b,sizeof b,fmt,ap);va_end(ap);
+           if(n>0&&g_hbfd>=0){if(n>(int)sizeof b-1)n=(int)sizeof b-1;if(write(g_hbfd,b,(size_t)n)<0){}}}
+          static long hb_rd(const char*p,char*b,size_t n){int fd=open(p,O_RDONLY);long r;
+           if(fd<0)return -1;r=(long)read(fd,b,n-1);close(fd);if(r<0)return -1;b[r]=0;return r;}
+          static void hb_where(uintptr_t pc,char*out,size_t n){Mod*m=mod_of(pc);
+           if(m)snprintf(out,n,"%s+0x%lx",m->name,(unsigned long)(pc-m->bias));
+           else snprintf(out,n,"%p",(void*)pc);}
+          static void hb_stack(uintptr_t sp){int fd=open("/dev/null",O_WRONLY),k,n=0;char w[120];if(fd<0)return;
+           for(k=0;k<3000&&n<14;k++){uintptr_t*pw=&((uintptr_t*)sp)[k];uintptr_t v;if(!bt_ok((uintptr_t)pw,fd))break;v=*pw;if(!mod_of(v))continue;if(bt_is_call(v,fd)){hb_where(v,w,sizeof w);hb_raw("        bt sp+%04d %s\n",k*4,w);n++;}}
+           close(fd);}
+          static void hb_threads(void){int fd=open("/proc/self/task",O_RDONLY|O_DIRECTORY);char buf[2048];long n;
+           if(fd<0)return;
+           while((n=syscall(SYS_getdents64,fd,buf,sizeof buf))>0){long off=0;
+            while(off<n){struct dirent64*e=(struct dirent64*)(buf+off);char p[96],nm[40],ln[256];
+             off+=e->d_reclen;
+             if(e->d_name[0]=='.')continue;
+             snprintf(p,sizeof p,"/proc/self/task/%s/comm",e->d_name);
+             if(hb_rd(p,nm,sizeof nm)<0)strcpy(nm,"?");
+             {char*q=strchr(nm,'\n');if(q)*q=0;}
+             snprintf(p,sizeof p,"/proc/self/task/%s/syscall",e->d_name);
+             if(hb_rd(p,ln,sizeof ln)<0)ln[0]=0;
+             {char*q=strchr(ln,'\n');if(q)*q=0;}
+             if(!ln[0]||!strncmp(ln,"running",7))hb_raw("   [thr %s %s] berjalan (tidak di dalam syscall)\n",e->d_name,nm);
+             else{char*last=strrchr(ln,' ');unsigned long pc=last?strtoul(last+1,NULL,16):0;char w[120];hb_where((uintptr_t)pc,w,sizeof w);
+              hb_raw("   [thr %s %s] syscall=%.14s pc=%s\n",e->d_name,nm,ln,w);
+              {char tmp[256];char*l,*l2;unsigned long sp=0;strncpy(tmp,ln,sizeof tmp-1);tmp[sizeof tmp-1]=0;l=strrchr(tmp,' ');if(l){*l=0;l2=strrchr(tmp,' ');if(l2)sp=strtoul(l2+1,NULL,16);}
+               if(sp&&(strstr(nm,"UnityMain")||strstr(nm,"FakeUI")||strstr(nm,"UnityGfx")||strstr(nm,"Loading")))hb_stack((uintptr_t)sp);}}}}
+           close(fd);}
+          static void*hb_thread(void*arg){int t=0;(void)arg;
+           for(;;){char b[2048],*sp;long pages=0,rss=0,avail=-1;int n=0,step=(t<30)?1:5;
+            sleep((unsigned)step);t+=step;
+            if(hb_rd("/proc/self/statm",b,sizeof b)>0){if(sscanf(b,"%ld %ld",&pages,&rss)!=2){pages=0;rss=0;}}
+            if(hb_rd("/proc/meminfo",b,sizeof b)>0){sp=strstr(b,"MemAvailable:");if(sp)avail=atol(sp+13)/1024;}
+            if(hb_rd("/proc/self/status",b,sizeof b)>0){sp=strstr(b,"Threads:");if(sp)n=atoi(sp+8);}
+            hb_raw("[hb] t=%ds rss=%ldMB vsz=%ldMB sisa-RAM=%ldMB thread=%d frame=%lu\n",t,rss*4/1024,pages*4/1024,avail,n,(unsigned long)g_m2_frames);
+            if(t==1||t==3||t==15||t%30==0){hb_raw("[hb] posisi tiap thread:\n");hb_threads();}if((t==12||t==45)&&g_m2_frames==0)dump_threads();}
+           return NULL;}
+          typedef struct{unsigned long uregs[18];}sv_regs_t;
+          static int sv_dumps;
+          static void sv_maps(pid_t pid,unsigned long a,const char*what){static char mb[262144];char p[64],*s;int fd;long n=0,r;
+           snprintf(p,sizeof p,"/proc/%d/maps",(int)pid);fd=open(p,O_RDONLY);if(fd<0)return;
+           while(n<(long)sizeof mb-1&&(r=(long)read(fd,mb+n,sizeof mb-1-(size_t)n))>0)n+=r;
+           close(fd);mb[n]=0;s=mb;
+           while(*s){char*e=strchr(s,'\n');unsigned long lo=0,hi=0;
+            if(e)*e=0;
+            if(sscanf(s,"%lx-%lx",&lo,&hi)==2&&a>=lo&&a<hi){hb_raw("      %s=%08lx -> %.170s\n",what,a,s);return;}
+            if(!e)break;s=e+1;}
+           hb_raw("      %s=%08lx -> (tidak ada di peta memori)\n",what,a);}
+          static void sv_dump(pid_t tid,int sig){sv_regs_t r;siginfo_t si;char p[96],b[2048];int fd,k;unsigned long sp,pc,lr;
+           const char*keys[3]={"SigBlk:","SigIgn:","SigCgt:"};
+           if(sv_dumps++>=6)return;
+           memset(&r,0,sizeof r);memset(&si,0,sizeof si);
+           if(ptrace(PTRACE_GETREGS,tid,0,&r)<0)return;
+           ptrace(PTRACE_GETSIGINFO,tid,0,&si);
+           pc=r.uregs[15];lr=r.uregs[14];sp=r.uregs[13];
+           hb_raw("[supervisor] >>> thread %d kena sinyal %d si_code=%d si_addr=%p (BUS_ADRALN=1 tidak sejajar, BUS_ADRERR=2 alamat tak ada, SEGV_MAPERR=1, SEGV_ACCERR=2)\n",(int)tid,sig,(int)si.si_code,si.si_addr);
+           hb_raw("   r0=%08lx r1=%08lx r2=%08lx r3=%08lx r4=%08lx r5=%08lx r6=%08lx r7=%08lx\n",r.uregs[0],r.uregs[1],r.uregs[2],r.uregs[3],r.uregs[4],r.uregs[5],r.uregs[6],r.uregs[7]);
+           hb_raw("   r8=%08lx r9=%08lx r10=%08lx fp=%08lx ip=%08lx sp=%08lx lr=%08lx pc=%08lx cpsr=%08lx (bit5=Thumb)\n",r.uregs[8],r.uregs[9],r.uregs[10],r.uregs[11],r.uregs[12],sp,lr,pc,r.uregs[16]);
+           snprintf(p,sizeof p,"/proc/%d/status",(int)tid);
+           if(hb_rd(p,b,sizeof b)>0){for(k=0;k<3;k++){char*q=strstr(b,keys[k]);if(q){char*e=strchr(q,'\n');if(e)*e=0;hb_raw("   %s\n",q);}}}
+           {Dl_info dd;if(dladdr((void*)(pc&~1ul),&dd)&&dd.dli_fname)hb_raw("   pc dladdr: %s+0x%lx (%s+0x%lx)\n",dd.dli_sname?dd.dli_sname:"?",dd.dli_sname?(unsigned long)((pc&~1ul)-(unsigned long)dd.dli_saddr):0ul,dd.dli_fname,(unsigned long)((pc&~1ul)-(unsigned long)dd.dli_fbase));}
+          sv_maps(tid,pc,"pc");sv_maps(tid,lr,"lr");sv_maps(tid,(unsigned long)si.si_addr,"si_addr");sv_maps(tid,sp,"sp");
+           snprintf(p,sizeof p,"/proc/%d/mem",(int)tid);fd=open(p,O_RDONLY);
+           if(fd>=0){unsigned char c[16];uint32_t w[96];
+            if(pread64(fd,c,16,(off64_t)((pc&~1ul)-4))==16)hb_raw("   byte di pc-4..pc+11: %02x %02x %02x %02x | %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8],c[9],c[10],c[11],c[12],c[13],c[14],c[15]);
+            if(pread64(fd,w,sizeof w,(off64_t)sp)==(ssize_t)sizeof w){for(k=0;k<96;k+=6)hb_raw("   sp+%03d: %08x %08x %08x %08x %08x %08x\n",k*4,w[k],w[k+1],w[k+2],w[k+3],w[k+4],w[k+5]);}
+            close(fd);}}
+          static void sv_run(pid_t cp){int st=0,traced=!getenv("M2_NOPTRACE");pid_t pid;
+           if(traced){pid=waitpid(cp,&st,0);
+            if(pid==cp&&WIFSTOPPED(st)){ptrace(PTRACE_SETOPTIONS,cp,0,(void*)(long)(0x8|0x100000));ptrace(PTRACE_CONT,cp,0,0);}
+            else if(pid==cp&&(WIFEXITED(st)||WIFSIGNALED(st))){traced=0;}
+            else traced=0;}
+           if(traced){
+            for(;;){pid=waitpid(-1,&st,__WALL);
+             if(pid<0){if(errno==EINTR)continue;break;}
+             if(pid==cp&&(WIFEXITED(st)||WIFSIGNALED(st)))break;
+             if(WIFEXITED(st)||WIFSIGNALED(st))continue;
+             if(WIFSTOPPED(st)){int sig=WSTOPSIG(st),ev=(st>>16)&0xff;
+              if(sig==SIGTRAP&&ev){ptrace(PTRACE_CONT,pid,0,0);continue;}
+              if(sig==SIGSTOP){ptrace(PTRACE_CONT,pid,0,0);continue;}
+              if(sig==SIGBUS||sig==SIGSEGV||sig==SIGILL||sig==SIGFPE||sig==SIGABRT)sv_dump(pid,sig);
+              ptrace(PTRACE_CONT,pid,0,(void*)(long)sig);}}}
+           else{while((pid=waitpid(cp,&st,0))<0&&errno==EINTR){}}
+           if(WIFSIGNALED(st))hb_raw("[supervisor] proses game MATI karena sinyal %d%s\n",WTERMSIG(st),WCOREDUMP(st)?" (core dump)":"");
+           else if(WIFEXITED(st))hb_raw("[supervisor] proses game keluar normal, exit code=%d\n",WEXITSTATUS(st));
+           else hb_raw("[supervisor] proses game berhenti dengan status tak dikenal %d\n",st);
+           _exit(WIFEXITED(st)?WEXITSTATUS(st):128+WTERMSIG(st));}
+          static void term_sig(int s,siginfo_t*i,void*c){(void)c;L("[sinyal] proses menerima sinyal %d dari pid=%d (si_code=%d) -> keluar\n",s,i?(int)i->si_pid:-1,i?(int)i->si_code:0);_exit(128+s);}
+          static void at_exit_log(void){L("[exit] atexit: proses keluar lewat exit() / return dari main\n");}
           static void alarm_handler(int s){(void)s;L("[watchdog] timeout\n");_exit(4);}
           static int pint(const char*s){int n=0;while(*s>='0'&&*s<='9')n=n*10+*s++-'0';return n;}
-          int main(int argc,char**argv){const char*dir="libs";int i,dry=0;Mod*mm,*un,*il;struct utsname u;struct sigaction sa;char logp[256]="m2_log.txt";for(i=1;i<argc;i++){if(!strcmp(argv[i],"--libdir")&&i+1<argc)dir=argv[++i];else if(!strcmp(argv[i],"--assets")&&i+1<argc)g_assets=argv[++i];else if(!strcmp(argv[i],"--apk")&&i+1<argc)snprintf(g_apk_arg,sizeof g_apk_arg,"%s",argv[++i]);else if(!strcmp(argv[i],"--stage")&&i+1<argc)g_stage=pint(argv[++i]);else if(!strcmp(argv[i],"--frames")&&i+1<argc)g_frames_target=pint(argv[++i]);else if(!strcmp(argv[i],"--timeout")&&i+1<argc)g_timeout=pint(argv[++i]);else if(!strcmp(argv[i],"--log")&&i+1<argc)snprintf(logp,sizeof logp,"%s",argv[++i]);else if(!strcmp(argv[i],"--dry"))dry=1;else if(!strcmp(argv[i],"--fps")&&i+1<argc)g_fps=pint(argv[++i]);}g_libdir=dir;g_log=fopen(logp,"w");if(g_log)dup2(fileno(g_log),2);L("== Let Me Eat M2 stage=%d frames=%d ==\n",g_stage,g_frames_target);if(sizeof(void*)!=4){L("must be armhf\n");return 2;}uname(&u);L("system=%s %s %s glibc=%s\n",u.sysname,u.release,u.machine,gnu_get_libc_version());setup_game_paths(dir,g_assets);wipe_il2cpp_cache();{stack_t ss;ss.ss_sp=malloc(1u<<17);ss.ss_size=1u<<17;ss.ss_flags=0;if(ss.ss_sp)sigaltstack(&ss,NULL);}memset(&sa,0,sizeof sa);sa.sa_sigaction=on_sig;sa.sa_flags=SA_SIGINFO|SA_ONSTACK;sigaction(SIGSEGV,&sa,NULL);sigaction(SIGBUS,&sa,NULL);sigaction(SIGILL,&sa,NULL);sigaction(SIGFPE,&sa,NULL);sigaction(SIGABRT,&sa,NULL);sigaction(SIGTRAP,&sa,NULL);sigaction(SIGSYS,&sa,NULL);{pthread_t sw;if(pthread_create(&sw,NULL,sigwatch,NULL)==0)pthread_detach(sw);}signal(SIGALRM,alarm_handler);init_jni_table();dlopen("libm.so.6",RTLD_NOW|RTLD_GLOBAL);dlopen("libgcc_s.so.1",RTLD_NOW|RTLD_GLOBAL);init_host_libs();if(load_mod(dir,"libmain.so",&mm)||load_mod(dir,"libunity.so",&un)||load_mod(dir,"libil2cpp.so",&il))return 1;if(relocate(mm)||relocate(un)||relocate(il))return 1;L("[resolve] unresolved=%d shim=%d glibc=%d weak=%d\n",cnt_unres,cnt_shim,cnt_libc,cnt_weak0);if(nunres)for(i=0;i<nunres;i++)L("UNRES %s\n",unres_name[i]);if(dry||g_stage<1){L("stage0 done\n");return 0;}if(g_timeout>0){alarm((unsigned)g_timeout);L("[watchdog] timeout %d detik\n",g_timeout);}protect(mm);protect(un);protect(il);run_init(mm);run_init(un);run_init(il);{void*f=mod_find(mm,"JNI_OnLoad");if(f)((int(*)(void*,void*))f)(&g_vmobj,NULL);}if(g_stage>=2){Native*n=find_native("NativeLoader","load");if(n){int r=((uint8_t(*)(void*,void*,void*))n->fn)(&g_envobj,mk_handle("com/unity3d/player/NativeLoader"),mk_handle(dir))&255;L("NativeLoader.load=%d\n",r);}else L("missing NativeLoader.load\n");{void*f=mod_find(un,"JNI_OnLoad");if(f)((int(*)(void*,void*))f)(&g_vmobj,NULL);}}if(g_stage>=3)m2_run();else L("stage2 JNI boot done; stage3 starts SDL/render\n");L("== M2 done ==\n");return 0;}
+          int main(int argc,char**argv){const char*dir="libs";int i,dry=0;Mod*mm,*un,*il;struct utsname u;struct sigaction sa;char logp[256]="m2_log.txt";for(i=1;i<argc;i++){if(!strcmp(argv[i],"--ui"))g_ui_run=1;else if(!strcmp(argv[i],"--uimain")){g_ui_run=1;g_ui_main=1;}else if(!strcmp(argv[i],"--uiold")){g_ui_run=1;g_ui_old=1;}else if(!strcmp(argv[i],"--uidrop")){g_ui_run=1;g_ui_drop=1;}else if(!strcmp(argv[i],"--uiptr1")){g_ui_run=1;g_ui_ptrmode=1;}else if(!strcmp(argv[i],"--libdir")&&i+1<argc)dir=argv[++i];else if(!strcmp(argv[i],"--assets")&&i+1<argc)g_assets=argv[++i];else if(!strcmp(argv[i],"--apk")&&i+1<argc)snprintf(g_apk_arg,sizeof g_apk_arg,"%s",argv[++i]);else if(!strcmp(argv[i],"--stage")&&i+1<argc)g_stage=pint(argv[++i]);else if(!strcmp(argv[i],"--frames")&&i+1<argc)g_frames_target=pint(argv[++i]);else if(!strcmp(argv[i],"--timeout")&&i+1<argc)g_timeout=pint(argv[++i]);else if(!strcmp(argv[i],"--log")&&i+1<argc)snprintf(logp,sizeof logp,"%s",argv[++i]);else if(!strcmp(argv[i],"--dry"))dry=1;else if(!strcmp(argv[i],"--fps")&&i+1<argc)g_fps=pint(argv[++i]);}g_libdir=dir;g_log=fopen(logp,"w");if(g_log)dup2(fileno(g_log),2);L("== Let Me Eat M2 amazing+fix27 stage=%d frames=%d ==\n",g_stage,g_frames_target);g_hbfd=g_log?fileno(g_log):-1;fflush(NULL);if(!getenv("M2_NOSUP")){pid_t cp=fork();if(cp>0)sv_run(cp);if(cp==0&&!getenv("M2_NOPTRACE")){ptrace(PTRACE_TRACEME,0,0,0);raise(SIGSTOP);}}if(sizeof(void*)!=4){L("must be armhf\n");return 2;}uname(&u);L("system=%s %s %s glibc=%s\n",u.sysname,u.release,u.machine,gnu_get_libc_version());setup_game_paths(dir,g_assets);wipe_il2cpp_cache();{stack_t ss;ss.ss_sp=malloc(1u<<17);ss.ss_size=1u<<17;ss.ss_flags=0;if(ss.ss_sp)sigaltstack(&ss,NULL);}memset(&sa,0,sizeof sa);sa.sa_sigaction=on_sig;sa.sa_flags=SA_SIGINFO|SA_ONSTACK|SA_NODEFER;sigaction(SIGSEGV,&sa,NULL);sigaction(SIGBUS,&sa,NULL);sigaction(SIGILL,&sa,NULL);sigaction(SIGFPE,&sa,NULL);sigaction(SIGABRT,&sa,NULL);sigaction(SIGTRAP,&sa,NULL);sigaction(SIGSYS,&sa,NULL);{struct sigaction dd;memset(&dd,0,sizeof dd);dd.sa_sigaction=on_dump;dd.sa_flags=SA_SIGINFO|SA_RESTART;sigemptyset(&dd.sa_mask);sigaction(SIGRTMIN+5,&dd,NULL);}{pthread_t sw;if(pthread_create(&sw,NULL,sigwatch,NULL)==0)pthread_detach(sw);}signal(SIGALRM,alarm_handler);{struct sigaction ts;int q;static const int tsig[]={SIGTERM,SIGHUP,SIGPIPE,SIGINT,SIGQUIT,SIGXCPU,SIGXFSZ,SIGVTALRM,SIGPROF};memset(&ts,0,sizeof ts);ts.sa_sigaction=term_sig;ts.sa_flags=SA_SIGINFO;for(q=0;q<(int)(sizeof tsig/sizeof tsig[0]);q++)sigaction(tsig[q],&ts,NULL);}atexit(at_exit_log);init_jni_table();dlopen("libm.so.6",RTLD_NOW|RTLD_GLOBAL);dlopen("libgcc_s.so.1",RTLD_NOW|RTLD_GLOBAL);init_host_libs();if(load_mod(dir,"libmain.so",&mm)||load_mod(dir,"libunity.so",&un)||load_mod(dir,"libil2cpp.so",&il))return 1;g_il=il;if(relocate(mm)||relocate(un)||relocate(il))return 1;L("[resolve] unresolved=%d shim=%d glibc=%d weak=%d\n",cnt_unres,cnt_shim,cnt_libc,cnt_weak0);if(nunres)for(i=0;i<nunres;i++)L("UNRES %s\n",unres_name[i]);if(dry||g_stage<1){L("stage0 done\n");return 0;}if(g_timeout>0){alarm((unsigned)g_timeout);L("[watchdog] timeout %d detik\n",g_timeout);}
+          {pthread_t hbt;if(pthread_create(&hbt,NULL,hb_thread,NULL)==0)pthread_detach(hbt);}protect(mm);protect(un);protect(il);run_init(mm);run_init(un);run_init(il);{void*f=mod_find(mm,"JNI_OnLoad");if(f)((int(*)(void*,void*))f)(&g_vmobj,NULL);}if(g_stage>=2){Native*n=find_native("NativeLoader","load");if(n){int r=((uint8_t(*)(void*,void*,void*))n->fn)(&g_envobj,mk_handle("com/unity3d/player/NativeLoader"),mk_handle(dir))&255;L("NativeLoader.load=%d\n",r);}else L("missing NativeLoader.load\n");{void*f=mod_find(un,"JNI_OnLoad");if(f)((int(*)(void*,void*))f)(&g_vmobj,NULL);}}if(g_stage>=3)m2_run();else L("stage2 JNI boot done; stage3 starts SDL/render\n");L("== M2 done ==\n");return 0;}
 
           EOF_C
       - name: Kompilasi (armhf)
@@ -1417,12 +1807,17 @@ jobs:
             echo "libmain.so/libunity.so/libil2cpp.so tidak ada di $GAMEDIR/$LIBDIR" >> m2_stdout.txt
             sleep 3; exit 1
           fi
-          ./letmeeatloader --stage 3 --frames 900 --fps 60 --libdir "$LIBDIR" --assets "$ASSETDIR" --timeout 180 --log m2_log.txt >> m2_stdout.txt 2>&1
+          TMO=""; command -v timeout >/dev/null 2>&1 && TMO="timeout -k 5 300"
+          $TMO ./letmeeatloader --ui --stage 3 --frames 12000 --fps 30 --libdir "$LIBDIR" --assets "$ASSETDIR" --timeout 180 --log m2_log.txt >> m2_stdout.txt 2>&1
           echo "exit code: $?" >> m2_stdout.txt
           sleep 3
           type pm_finish >/dev/null 2>&1 && pm_finish
           EOF_SH
           chmod +x out/letmeeat/LetMeEatM2.sh
+          sed -e 's#--ui --stage 3#--uidrop --stage 3#' -e 's#m2_log.txt#m2_log_uidrop.txt#g' -e 's#m2_stdout.txt#m2_stdout_uidrop.txt#g' out/letmeeat/LetMeEatM2.sh > out/letmeeat/LetMeEatM2_uidrop.sh
+          sed -e 's#--ui --stage 3#--uiptr1 --stage 3#' -e 's#m2_log.txt#m2_log_ptrodd.txt#g' -e 's#m2_stdout.txt#m2_stdout_ptrodd.txt#g' out/letmeeat/LetMeEatM2.sh > out/letmeeat/LetMeEatM2_ptrodd.sh
+          chmod +x out/letmeeat/LetMeEatM2_ptrodd.sh
+          chmod +x out/letmeeat/LetMeEatM2_uidrop.sh
           cat > out/letmeeat/BACA-DULU.txt <<'EOF_TXT'
           Let Me Eat M2 (port Let Me Eat / Unity 6000.0 IL2CPP armeabi-v7a -> Linux armhf / muOS)
           
@@ -1441,6 +1836,66 @@ jobs:
             perlu khawatir hang selamanya.
           - Kalau sudah keluar baris "MACET!" atau "STALL", artinya Unity menunggu callback
             Choreographer/Looper. Kirim log-nya ke Claude.
+
+          CATATAN FIX27:
+          - Run fix26: tak ada crash, 6 Runnable lewat native invoke(libunity+0xb60515), tapi nativeRender macet di frame 187 (swap=0, UnityMain futex wait).
+            Tiap invoke memicu JNI slot 9 ToReflectedMethod yang belum dipasang (return NULL) -> dugaan: dispatch ke C# tidak pernah terjadi.
+          - fix27: pasang ToReflectedMethod(9)/ToReflectedField(12); FromReflectedMethod kini mengenali objek Method hasil ToReflectedMethod; Method.getName ikut.
+          - Diagnostik baru: "[inv]" = SEMUA JNI call selama invoke; "[msg]" = obtainMessage/sendToTarget/getLooper; "[ui]   iface[n]=" = interface tiap proxy;
+            "[arr] ... PENUH" bila tabel array 512 habis. Kirim m2_log.txt + m2_stdout.txt.
+
+          CATATAN FIX26:
+          - Run fix25: heartbeat selamat, game sampai frame 183. Pemindaian ptr..ptr+0x1c: TIDAK ada objek managed (ptr+8=ac707fa0 adalah pointer malloc, bukan objek IL2CPP);
+            fallback 'GC handle 9' terbukti SALAH (SIGSEGV addr=0x14 di il2cpp+0x947008, handle tak valid).
+          - Saat initJni libunity mendaftarkan SATU native pada class tak bernama: invoke(JLjava/lang/Class;Ljava/lang/reflect/Method;[Ljava/lang/Object;)Ljava/lang/Object; @libunity+0xb60515.
+            Itu jalur invoke untuk proxy C++ (ptr = objek C++ ber-vtable). ReflectionHelper.nativeProxyInvoke hanya untuk proxy C# (delegate = GC handle / alamat sel).
+            Kita selama ini memanggil native yang salah -> *ptr = vtable dipakai sebagai objek managed -> SIGBUS.
+          - fix26: job proxy memanggil invoke(ptr asli, Class, Method=\"run\", args=[]) ; JNI FromReflectedMethod (slot 7) kini mengembalikan id Runnable.run.
+            Dump kode invoke (0x100 byte) untuk 3 run pertama. Fallback GC handle dihapus (job dilewati bila tak ada native invoke).
+
+          CATATAN FIX25:
+          - Run fix24 mati di DETIK KE-3 sebelum kode proxy fix24 sempat jalan: thread heartbeat (hb_threads/hb_stack) SIGSEGV saat memindai stack
+            thread lain, membaca halaman penjaga (si_addr=d8eec000 '---p'). Penyebab: probe memori lama memakai write(/dev/null), yang TIDAK memeriksa
+            apakah halaman termap (kernel tak menyentuh buffer). Run fix23 hanya beruntung. Itu bug diagnostik loader, bukan bug game.
+          - fix25: semua probe (bt_ok/bt_is_call/mem_peek/code_dump/safe_rd) kini memakai process_vm_readv(getpid) -> EFAULT bila tak termap;
+            fallback pipe tanpa mutex bila syscall tidak ada di kernel 4.9 ini. Logika proxy fix24 tidak diubah.
+
+          CATATAN FIX24:
+          - Disassembly nativeProxyInvoke (libunity+0x20d0ec): delegate==0 -> target=0; delegate GANJIL -> target=gchandle_get_target(delegate);
+            delegate GENAP -> target=*delegate (delegate = ALAMAT SEL berisi objek managed). Target lalu dipakai sebagai 'this' untuk invoke IL2CPP.
+          - ptr dari newInterfaceProxy = objek C++ 16 byte {vptr, vptr2, objek-managed, gchandle=9}; *ptr = vtable -> dipakai sbg 'this' -> SIGBUS di il2cpp+0x2387cb4.
+          - fix24: pindai ptr..ptr+0x1c cari kata yang menunjuk objek managed valid (klass->name terbaca & printable), pakai alamat sel itu sbg delegate
+            (kemungkinan ptr+8). Kalau tidak ada: coba GC handle di ptr+0xc; kalau tetap tidak ada: job dilewati (tanpa crash). Log: "[ui] kandidat ...", "[ui] delegate dipakai".
+          - Pembacaan memori memakai pipe (EFAULT-aman), bukan write(/dev/null). --uiold = perilaku lama (ptr apa adanya).
+          - Semua RegisterNatives pada class tak bernama (obj:...) sekarang dicatat "[nat]" (untuk mengenali Class#5).
+          - Jalankan LetMeEatM2.sh, kirim m2_log.txt + m2_stdout.txt.
+
+          CATATAN FIX23:
+          - fix22 menghentikan SIGBUS, tapi log-nya MEMBANTAH teori "objek dibebaskan": vtable di ptr berubah
+            dengan pasangan yang SAMA (f..4d10 -> f..4b88) untuk dua objek berbeda, termasuk objek yang baru
+            dibuat satu frame sebelumnya. Itu pola konstruktor C++ (vtable basis -> vtable turunan), bukan memori basi.
+          - Membuang job malah bikin Unity macet di frame 187 (menunggu hasil job UI).
+          - fix23: job TIDAK dibuang lagi (hanya dicatat), dan crash handler mendump kode rantai pemanggil
+            (nativeProxyInvoke, libunity+0x3a65c7, il2cpp+0x99d6dc/0x99d7f8/0x891690) + 24 kata di ptr, ptr+0x20, ptr+0x40.
+          - Jalankan LetMeEatM2.sh dan kirim m2_log.txt + m2_stdout.txt.
+
+          CATATAN FIX22:
+          - diag18 membuktikan isi ptr Runnable berubah sejak dibuat (objek dibebaskan/dipakai ulang) -> SIGBUS.
+          - fix22: simpan kata pertama (vtable) ptr saat proxy dibuat; saat job akan dijalankan dibandingkan lagi.
+            Kalau beda -> "[ui] job basi dibuang" (tidak dijalankan, tidak crash). Job yang masih sah tetap jalan.
+          - Jalankan LetMeEatM2.sh dan kirim m2_log.txt + m2_stdout.txt. Cari baris "job basi dibuang".
+
+          CATATAN DIAG18:
+          - diag17: ptr|1 (LetMeEatM2_ptrodd.sh) menghilangkan SIGBUS, tapi Runnable berujung di
+            ReflectionHelper.createInvocationError (jalur error) dan game tetap macet di frame 185 sesudah
+            Handler.obtainMessage(I).sendToTarget(). Fungsi libunity+0x3ab25c = stub PLT ke API IL2CPP
+            (kemungkinan il2cpp_gchandle_get_target) -> ptr|1 dibaca sebagai GCHandle (salah).
+          - Native ReflectionHelper terdaftar: nativeProxyInvoke, nativeProxyFinalize,
+            nativeProxyLogJNIInvokeException, nativeProxyJNIFreeGCHandle.
+          - diag18: catat isi memori ptr SAAT proxy DIBUAT ("ptr@dibuat") dan saat dipanggil, plus
+            alamat pemanggil newInterfaceProxy di libunity dan dump kode pembuatnya ("creator-...").
+            Tujuan: cek apakah isi ptr berubah (memori dipakai ulang) atau memang objek C++ sejak awal.
+          - Jalankan LetMeEatM2.sh dan kirim m2_log.txt + m2_stdout.txt.
 
           CARA PASANG:
           1. Salin isi folder ini ke folder game di Anbernic, mis. /mnt/sdcard/ports/LetMeEat/
