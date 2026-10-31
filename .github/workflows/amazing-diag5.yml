@@ -1451,8 +1451,8 @@ jobs:
 
           /* ======================= Unity thread + render loop ======================= */
           typedef void(*nfn)(void*,void*,...);
-          typedef struct{void*h;int64_t ptr;}UProxy;static UProxy g_uprox[512];static int g_nuprox;
-          typedef struct{int64_t ptr;int64_t due;int used;int pre;}UJob;static UJob g_ujobs[256];
+          typedef struct{void*h;int64_t ptr;uint32_t w0;}UProxy;static UProxy g_uprox[512];static int g_nuprox;
+          typedef struct{int64_t ptr;int64_t due;int used;int pre;uint32_t w0;}UJob;static UJob g_ujobs[256];
           static pthread_mutex_t g_ujm=PTHREAD_MUTEX_INITIALIZER;static int g_ui_run=0,g_ui_started,g_ui_runs;
           static int64_t ui_now(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (int64_t)t.tv_sec*1000+t.tv_nsec/1000000;}
           static void mem_peek(const char*nm,uintptr_t a){int fd=open("/dev/null",O_WRONLY),k;char ln[200];int p;if(fd<0)return;if(a<0x10000u||write(fd,(void*)a,4)!=4){L("  mem[%s=%08lx]: tidak terbaca\n",nm,(unsigned long)a);close(fd);return;}p=snprintf(ln,sizeof ln,"  mem[%s=%08lx]:",nm,(unsigned long)a);for(k=0;k<8;k++){uintptr_t q=a+(uintptr_t)k*4;if(write(fd,(void*)q,4)!=4)break;p+=snprintf(ln+p,sizeof ln-(size_t)p," %08x",*(uint32_t*)q);}L("%s\n",ln);close(fd);}
@@ -1466,14 +1466,20 @@ jobs:
            dom=dg();th=ta(dom);
            L("[ui] il2cpp_thread_attach tid=%d domain=%p -> thread=%p\n",(int)syscall(SYS_gettid),dom,th);
           }
-          static int ui_run_one(void){int i,best=-1;int64_t t=ui_now(),ptr=0;Native*n;void*env=&g_envobj;
+          static int g_ui_stale;
+          static int ui_run_one(void){int i,best=-1;int64_t t=ui_now(),ptr=0;uint32_t w0=0;Native*n;void*env=&g_envobj;
            if(g_m2_frames==0||!(n=find_native("ReflectionHelper","nativeProxyInvoke")))return 0;
            pthread_mutex_lock(&g_ujm);
            if(!g_script_ready&&g_m2_frames>=600){g_script_ready=1;L("[ui] frame 600 tanpa log skrip -> lepas job tertahan\n");}
            for(i=0;i<256;i++)if(g_ujobs[i].used&&g_ujobs[i].due<=t&&(!g_ujobs[i].pre||g_script_ready)&&(best<0||g_ujobs[i].due<g_ujobs[best].due))best=i;
-           if(best>=0){ptr=g_ujobs[best].ptr;g_ujobs[best].used=0;}
+           if(best>=0){ptr=g_ujobs[best].ptr;w0=g_ujobs[best].w0;g_ujobs[best].used=0;}
            pthread_mutex_unlock(&g_ujm);
            if(best<0)return 0;
+           /* fix22: diag18 membuktikan isi ptr berubah antara proxy dibuat dan dijalankan (objek C++ dibebaskan/dipakai ulang).
+              Jalankan Runnable hanya kalau kata pertama (vtable) masih sama dengan saat dibuat; kalau beda -> basi, buang. */
+           if(ptr>0x10000&&w0&&*(volatile uint32_t*)(uintptr_t)ptr!=w0){
+            if(g_ui_stale++<30)L("[ui] job basi dibuang ptr=0x%llx w0 dibuat=%08x sekarang=%08x frame=%lu\n",(unsigned long long)ptr,(unsigned)w0,(unsigned)*(volatile uint32_t*)(uintptr_t)ptr,(unsigned long)g_m2_frames);
+            return 1;}
            if(g_ui_ptrmode==1)ptr|=1;
            if(!g_ui_main&&!g_ui_attached){g_ui_attached=1;ui_il2cpp_attach();}
            if(g_ui_runs<6)L("[ui] jalankan Runnable proxy ptr=0x%llx sig=%s thread=%s tid=%d\n",(unsigned long long)ptr,n->sig,g_ui_main?"UnityMain(render)":"FakeUI",(int)syscall(SYS_gettid));
@@ -1486,12 +1492,12 @@ jobs:
            for(;;){if(!ui_run_one())usleep(2000);}
            return NULL;}
 
-          static void ui_reg_proxy(void*h,int64_t ptr){pthread_mutex_lock(&g_ujm);g_uprox[g_nuprox%512].h=h;g_uprox[g_nuprox%512].ptr=ptr;g_nuprox++;pthread_mutex_unlock(&g_ujm);}
-          static void ui_post(void*h,int64_t dly){int i,n,k;int64_t ptr=0;int found=0;if(!g_ui_run)return;
+          static void ui_reg_proxy(void*h,int64_t ptr){pthread_mutex_lock(&g_ujm);g_uprox[g_nuprox%512].h=h;g_uprox[g_nuprox%512].ptr=ptr;g_uprox[g_nuprox%512].w0=(ptr>0x10000)?*(volatile uint32_t*)(uintptr_t)ptr:0;g_nuprox++;pthread_mutex_unlock(&g_ujm);}
+          static void ui_post(void*h,int64_t dly){int i,n,k;int64_t ptr=0;uint32_t w0=0;int found=0;if(!g_ui_run)return;
            pthread_mutex_lock(&g_ujm);
-           n=g_nuprox<512?g_nuprox:512;for(i=0;i<n;i++)if(g_uprox[i].h==h){ptr=g_uprox[i].ptr;found=1;break;}
+           n=g_nuprox<512?g_nuprox:512;for(i=0;i<n;i++)if(g_uprox[i].h==h){ptr=g_uprox[i].ptr;w0=g_uprox[i].w0;found=1;break;}
            if(found&&g_m2_frames==0&&g_ui_drop){found=0;g_ui_dropped++;L("[ui] job dini DIBUANG (--uidrop) ptr=0x%llx\n",(unsigned long long)ptr);}
-            if(found){for(k=0;k<256;k++)if(!g_ujobs[k].used){g_ujobs[k].pre=(g_m2_frames==0);if(g_ujobs[k].pre)L("[ui] job dini ditahan ptr=0x%llx\n",(unsigned long long)ptr);g_ujobs[k].ptr=ptr;g_ujobs[k].due=ui_now()+(dly>0?dly:0);g_ujobs[k].used=1;break;}
+            if(found){for(k=0;k<256;k++)if(!g_ujobs[k].used){g_ujobs[k].pre=(g_m2_frames==0);if(g_ujobs[k].pre)L("[ui] job dini ditahan ptr=0x%llx\n",(unsigned long long)ptr);g_ujobs[k].ptr=ptr;g_ujobs[k].w0=w0;g_ujobs[k].due=ui_now()+(dly>0?dly:0);g_ujobs[k].used=1;break;}
             if(!g_ui_started&&!g_ui_main){pthread_t t;pthread_attr_t at;pthread_attr_init(&at);pthread_attr_setstacksize(&at,2u<<20);if(pthread_create(&t,&at,ui_thread,NULL)==0){pthread_detach(t);g_ui_started=1;}pthread_attr_destroy(&at);}}
            pthread_mutex_unlock(&g_ujm);}
           static void*unity_thread(void*arg){Native*ni,*nr,*nc,*nf,*nrender;void*env=&g_envobj;void*self=mk_obj("com/unity3d/player/UnityPlayer");void*ctx=mk_obj("android/app/Activity");void*surf=mk_obj("android/view/Surface");unsigned long frames=0;struct timespec a,b;(void)arg;g_unity_self=self;g_unity_tid=(int)syscall(SYS_gettid);pthread_setname_np(pthread_self(),"UnityMain");
@@ -1717,7 +1723,7 @@ jobs:
           static void at_exit_log(void){L("[exit] atexit: proses keluar lewat exit() / return dari main\n");}
           static void alarm_handler(int s){(void)s;L("[watchdog] timeout\n");_exit(4);}
           static int pint(const char*s){int n=0;while(*s>='0'&&*s<='9')n=n*10+*s++-'0';return n;}
-          int main(int argc,char**argv){const char*dir="libs";int i,dry=0;Mod*mm,*un,*il;struct utsname u;struct sigaction sa;char logp[256]="m2_log.txt";for(i=1;i<argc;i++){if(!strcmp(argv[i],"--ui"))g_ui_run=1;else if(!strcmp(argv[i],"--uimain")){g_ui_run=1;g_ui_main=1;}else if(!strcmp(argv[i],"--uidrop")){g_ui_run=1;g_ui_drop=1;}else if(!strcmp(argv[i],"--uiptr1")){g_ui_run=1;g_ui_ptrmode=1;}else if(!strcmp(argv[i],"--libdir")&&i+1<argc)dir=argv[++i];else if(!strcmp(argv[i],"--assets")&&i+1<argc)g_assets=argv[++i];else if(!strcmp(argv[i],"--apk")&&i+1<argc)snprintf(g_apk_arg,sizeof g_apk_arg,"%s",argv[++i]);else if(!strcmp(argv[i],"--stage")&&i+1<argc)g_stage=pint(argv[++i]);else if(!strcmp(argv[i],"--frames")&&i+1<argc)g_frames_target=pint(argv[++i]);else if(!strcmp(argv[i],"--timeout")&&i+1<argc)g_timeout=pint(argv[++i]);else if(!strcmp(argv[i],"--log")&&i+1<argc)snprintf(logp,sizeof logp,"%s",argv[++i]);else if(!strcmp(argv[i],"--dry"))dry=1;else if(!strcmp(argv[i],"--fps")&&i+1<argc)g_fps=pint(argv[++i]);}g_libdir=dir;g_log=fopen(logp,"w");if(g_log)dup2(fileno(g_log),2);L("== Let Me Eat M2 amazing+diag18 stage=%d frames=%d ==\n",g_stage,g_frames_target);g_hbfd=g_log?fileno(g_log):-1;fflush(NULL);if(!getenv("M2_NOSUP")){pid_t cp=fork();if(cp>0)sv_run(cp);if(cp==0&&!getenv("M2_NOPTRACE")){ptrace(PTRACE_TRACEME,0,0,0);raise(SIGSTOP);}}if(sizeof(void*)!=4){L("must be armhf\n");return 2;}uname(&u);L("system=%s %s %s glibc=%s\n",u.sysname,u.release,u.machine,gnu_get_libc_version());setup_game_paths(dir,g_assets);wipe_il2cpp_cache();{stack_t ss;ss.ss_sp=malloc(1u<<17);ss.ss_size=1u<<17;ss.ss_flags=0;if(ss.ss_sp)sigaltstack(&ss,NULL);}memset(&sa,0,sizeof sa);sa.sa_sigaction=on_sig;sa.sa_flags=SA_SIGINFO|SA_ONSTACK|SA_NODEFER;sigaction(SIGSEGV,&sa,NULL);sigaction(SIGBUS,&sa,NULL);sigaction(SIGILL,&sa,NULL);sigaction(SIGFPE,&sa,NULL);sigaction(SIGABRT,&sa,NULL);sigaction(SIGTRAP,&sa,NULL);sigaction(SIGSYS,&sa,NULL);{struct sigaction dd;memset(&dd,0,sizeof dd);dd.sa_sigaction=on_dump;dd.sa_flags=SA_SIGINFO|SA_RESTART;sigemptyset(&dd.sa_mask);sigaction(SIGRTMIN+5,&dd,NULL);}{pthread_t sw;if(pthread_create(&sw,NULL,sigwatch,NULL)==0)pthread_detach(sw);}signal(SIGALRM,alarm_handler);{struct sigaction ts;int q;static const int tsig[]={SIGTERM,SIGHUP,SIGPIPE,SIGINT,SIGQUIT,SIGXCPU,SIGXFSZ,SIGVTALRM,SIGPROF};memset(&ts,0,sizeof ts);ts.sa_sigaction=term_sig;ts.sa_flags=SA_SIGINFO;for(q=0;q<(int)(sizeof tsig/sizeof tsig[0]);q++)sigaction(tsig[q],&ts,NULL);}atexit(at_exit_log);init_jni_table();dlopen("libm.so.6",RTLD_NOW|RTLD_GLOBAL);dlopen("libgcc_s.so.1",RTLD_NOW|RTLD_GLOBAL);init_host_libs();if(load_mod(dir,"libmain.so",&mm)||load_mod(dir,"libunity.so",&un)||load_mod(dir,"libil2cpp.so",&il))return 1;g_il=il;if(relocate(mm)||relocate(un)||relocate(il))return 1;L("[resolve] unresolved=%d shim=%d glibc=%d weak=%d\n",cnt_unres,cnt_shim,cnt_libc,cnt_weak0);if(nunres)for(i=0;i<nunres;i++)L("UNRES %s\n",unres_name[i]);if(dry||g_stage<1){L("stage0 done\n");return 0;}if(g_timeout>0){alarm((unsigned)g_timeout);L("[watchdog] timeout %d detik\n",g_timeout);}
+          int main(int argc,char**argv){const char*dir="libs";int i,dry=0;Mod*mm,*un,*il;struct utsname u;struct sigaction sa;char logp[256]="m2_log.txt";for(i=1;i<argc;i++){if(!strcmp(argv[i],"--ui"))g_ui_run=1;else if(!strcmp(argv[i],"--uimain")){g_ui_run=1;g_ui_main=1;}else if(!strcmp(argv[i],"--uidrop")){g_ui_run=1;g_ui_drop=1;}else if(!strcmp(argv[i],"--uiptr1")){g_ui_run=1;g_ui_ptrmode=1;}else if(!strcmp(argv[i],"--libdir")&&i+1<argc)dir=argv[++i];else if(!strcmp(argv[i],"--assets")&&i+1<argc)g_assets=argv[++i];else if(!strcmp(argv[i],"--apk")&&i+1<argc)snprintf(g_apk_arg,sizeof g_apk_arg,"%s",argv[++i]);else if(!strcmp(argv[i],"--stage")&&i+1<argc)g_stage=pint(argv[++i]);else if(!strcmp(argv[i],"--frames")&&i+1<argc)g_frames_target=pint(argv[++i]);else if(!strcmp(argv[i],"--timeout")&&i+1<argc)g_timeout=pint(argv[++i]);else if(!strcmp(argv[i],"--log")&&i+1<argc)snprintf(logp,sizeof logp,"%s",argv[++i]);else if(!strcmp(argv[i],"--dry"))dry=1;else if(!strcmp(argv[i],"--fps")&&i+1<argc)g_fps=pint(argv[++i]);}g_libdir=dir;g_log=fopen(logp,"w");if(g_log)dup2(fileno(g_log),2);L("== Let Me Eat M2 amazing+fix22 stage=%d frames=%d ==\n",g_stage,g_frames_target);g_hbfd=g_log?fileno(g_log):-1;fflush(NULL);if(!getenv("M2_NOSUP")){pid_t cp=fork();if(cp>0)sv_run(cp);if(cp==0&&!getenv("M2_NOPTRACE")){ptrace(PTRACE_TRACEME,0,0,0);raise(SIGSTOP);}}if(sizeof(void*)!=4){L("must be armhf\n");return 2;}uname(&u);L("system=%s %s %s glibc=%s\n",u.sysname,u.release,u.machine,gnu_get_libc_version());setup_game_paths(dir,g_assets);wipe_il2cpp_cache();{stack_t ss;ss.ss_sp=malloc(1u<<17);ss.ss_size=1u<<17;ss.ss_flags=0;if(ss.ss_sp)sigaltstack(&ss,NULL);}memset(&sa,0,sizeof sa);sa.sa_sigaction=on_sig;sa.sa_flags=SA_SIGINFO|SA_ONSTACK|SA_NODEFER;sigaction(SIGSEGV,&sa,NULL);sigaction(SIGBUS,&sa,NULL);sigaction(SIGILL,&sa,NULL);sigaction(SIGFPE,&sa,NULL);sigaction(SIGABRT,&sa,NULL);sigaction(SIGTRAP,&sa,NULL);sigaction(SIGSYS,&sa,NULL);{struct sigaction dd;memset(&dd,0,sizeof dd);dd.sa_sigaction=on_dump;dd.sa_flags=SA_SIGINFO|SA_RESTART;sigemptyset(&dd.sa_mask);sigaction(SIGRTMIN+5,&dd,NULL);}{pthread_t sw;if(pthread_create(&sw,NULL,sigwatch,NULL)==0)pthread_detach(sw);}signal(SIGALRM,alarm_handler);{struct sigaction ts;int q;static const int tsig[]={SIGTERM,SIGHUP,SIGPIPE,SIGINT,SIGQUIT,SIGXCPU,SIGXFSZ,SIGVTALRM,SIGPROF};memset(&ts,0,sizeof ts);ts.sa_sigaction=term_sig;ts.sa_flags=SA_SIGINFO;for(q=0;q<(int)(sizeof tsig/sizeof tsig[0]);q++)sigaction(tsig[q],&ts,NULL);}atexit(at_exit_log);init_jni_table();dlopen("libm.so.6",RTLD_NOW|RTLD_GLOBAL);dlopen("libgcc_s.so.1",RTLD_NOW|RTLD_GLOBAL);init_host_libs();if(load_mod(dir,"libmain.so",&mm)||load_mod(dir,"libunity.so",&un)||load_mod(dir,"libil2cpp.so",&il))return 1;g_il=il;if(relocate(mm)||relocate(un)||relocate(il))return 1;L("[resolve] unresolved=%d shim=%d glibc=%d weak=%d\n",cnt_unres,cnt_shim,cnt_libc,cnt_weak0);if(nunres)for(i=0;i<nunres;i++)L("UNRES %s\n",unres_name[i]);if(dry||g_stage<1){L("stage0 done\n");return 0;}if(g_timeout>0){alarm((unsigned)g_timeout);L("[watchdog] timeout %d detik\n",g_timeout);}
           {pthread_t hbt;if(pthread_create(&hbt,NULL,hb_thread,NULL)==0)pthread_detach(hbt);}protect(mm);protect(un);protect(il);run_init(mm);run_init(un);run_init(il);{void*f=mod_find(mm,"JNI_OnLoad");if(f)((int(*)(void*,void*))f)(&g_vmobj,NULL);}if(g_stage>=2){Native*n=find_native("NativeLoader","load");if(n){int r=((uint8_t(*)(void*,void*,void*))n->fn)(&g_envobj,mk_handle("com/unity3d/player/NativeLoader"),mk_handle(dir))&255;L("NativeLoader.load=%d\n",r);}else L("missing NativeLoader.load\n");{void*f=mod_find(un,"JNI_OnLoad");if(f)((int(*)(void*,void*))f)(&g_vmobj,NULL);}}if(g_stage>=3)m2_run();else L("stage2 JNI boot done; stage3 starts SDL/render\n");L("== M2 done ==\n");return 0;}
 
           EOF_C
@@ -1797,6 +1803,12 @@ jobs:
             perlu khawatir hang selamanya.
           - Kalau sudah keluar baris "MACET!" atau "STALL", artinya Unity menunggu callback
             Choreographer/Looper. Kirim log-nya ke Claude.
+
+          CATATAN FIX22:
+          - diag18 membuktikan isi ptr Runnable berubah sejak dibuat (objek dibebaskan/dipakai ulang) -> SIGBUS.
+          - fix22: simpan kata pertama (vtable) ptr saat proxy dibuat; saat job akan dijalankan dibandingkan lagi.
+            Kalau beda -> "[ui] job basi dibuang" (tidak dijalankan, tidak crash). Job yang masih sah tetap jalan.
+          - Jalankan LetMeEatM2.sh dan kirim m2_log.txt + m2_stdout.txt. Cari baris "job basi dibuang".
 
           CATATAN DIAG18:
           - diag17: ptr|1 (LetMeEatM2_ptrodd.sh) menghilangkan SIGBUS, tapi Runnable berujung di
